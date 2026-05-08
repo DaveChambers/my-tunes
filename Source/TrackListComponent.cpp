@@ -5,19 +5,6 @@
 
 namespace
 {
-    juce::String discogsStatusText (TrackFile::DiscogsStatus s)
-    {
-        switch (s)
-        {
-            case TrackFile::DiscogsStatus::NotSearched: return "—";
-            case TrackFile::DiscogsStatus::Searching:   return "searching";
-            case TrackFile::DiscogsStatus::Found:       return "found";
-            case TrackFile::DiscogsStatus::Uncertain:   return "uncertain";
-            case TrackFile::DiscogsStatus::NotFound:    return "not found";
-            case TrackFile::DiscogsStatus::Error:       return "error";
-        }
-        return "—";
-    }
 }
 
 TrackListComponent::TrackListComponent (TrackLibrary& l)
@@ -92,7 +79,7 @@ void TrackListComponent::paintCell (juce::Graphics& g, int rowNumber, int column
         case ColVersion:  text = tf.version; break;
         case ColTags:     text = tf.emojiTags.joinIntoString (" "); break;
         case ColPriority: text = tf.priority > 0 ? juce::String (tf.priority) : juce::String(); break;
-        case ColDiscogs:  text = discogsStatusText (tf.discogsStatus); break;
+        case ColDiscogs:  text = TrackFile::discogsStatusText (tf.discogsStatus); break;
         default:          break;
     }
 

@@ -46,4 +46,23 @@ struct TrackFile
     juce::String  discogsTitle;
     juce::String  discogsCoverUrl;
     juce::File    cachedArtworkPath;   // if a thumbnail was downloaded
+
+    // Plain ASCII status text for the table column / detail panel. We
+    // deliberately avoid the em-dash / "smart quote" range — earlier
+    // builds used "—" as a placeholder and Dave saw that show up as
+    // "â€"" mojibake in the column due to UTF-8 being interpreted as
+    // Latin-1 by the renderer in some setups.
+    static juce::String discogsStatusText (DiscogsStatus s) noexcept
+    {
+        switch (s)
+        {
+            case DiscogsStatus::NotSearched: return "Not searched";
+            case DiscogsStatus::Searching:   return "Searching";
+            case DiscogsStatus::Found:       return "Found";
+            case DiscogsStatus::Uncertain:   return "Uncertain";
+            case DiscogsStatus::NotFound:    return "Not found";
+            case DiscogsStatus::Error:       return "Error";
+        }
+        return "Not searched";
+    }
 };

@@ -118,3 +118,43 @@ public:
 };
 
 static TrackFilenameParserTests sTrackFilenameParserTests;
+
+class DiscogsStatusTextTests : public juce::UnitTest
+{
+public:
+    DiscogsStatusTextTests() : juce::UnitTest ("DiscogsStatusText", "my-tunes") {}
+
+    void runTest() override
+    {
+        beginTest ("status strings have non-empty plain English text");
+        {
+            using S = TrackFile::DiscogsStatus;
+            expectEquals (TrackFile::discogsStatusText (S::NotSearched), juce::String ("Not searched"));
+            expectEquals (TrackFile::discogsStatusText (S::Searching),   juce::String ("Searching"));
+            expectEquals (TrackFile::discogsStatusText (S::Found),       juce::String ("Found"));
+            expectEquals (TrackFile::discogsStatusText (S::Uncertain),   juce::String ("Uncertain"));
+            expectEquals (TrackFile::discogsStatusText (S::NotFound),    juce::String ("Not found"));
+            expectEquals (TrackFile::discogsStatusText (S::Error),       juce::String ("Error"));
+        }
+
+        beginTest ("status strings are pure ASCII (no UTF-8 mojibake risk)");
+        {
+            using S = TrackFile::DiscogsStatus;
+            for (auto s : { S::NotSearched, S::Searching, S::Found,
+                            S::Uncertain,   S::NotFound,  S::Error })
+            {
+                const auto text = TrackFile::discogsStatusText (s);
+                for (int i = 0; i < text.length(); ++i)
+                {
+                    const auto codepoint = text[i];
+                    expect (codepoint >= 0x20 && codepoint < 0x7F,
+                            juce::String ("non-ASCII byte in status: \"")
+                                + text + "\" at index " + juce::String (i)
+                                + " (cp=" + juce::String ((int) codepoint) + ")");
+                }
+            }
+        }
+    }
+};
+
+static DiscogsStatusTextTests sDiscogsStatusTextTests;
