@@ -48,9 +48,52 @@ public:
                     "lastError should describe the failure");
         }
 
+        beginTest ("play() with default (empty) file fails gracefully");
+        {
+            TrackPreviewPlayer p;
+            const bool ok = p.play (0, juce::File());
+            expect (! ok);
+            expect (! p.isPlaying());
+            expect (p.getLastError().isNotEmpty());
+        }
+
+        beginTest ("play() with a negative track index still does not crash");
+        {
+            // The library bounds check lives in MainComponent::togglePlayback.
+            // The player itself just stores whatever index it was given;
+            // we still want it to not crash if a misbehaving caller hands
+            // it -1 (it'll fail on the missing file, leaving the player
+            // idle).
+            TrackPreviewPlayer p;
+            const bool ok = p.play (-1, juce::File ("/no/such/path.wav"));
+            expect       (! ok);
+            expect       (! p.isPlaying());
+            expectEquals (p.getPlayingTrackIndex(), -1);
+        }
+
+        beginTest ("repeated failing play() calls do not crash");
+        {
+            TrackPreviewPlayer p;
+            for (int i = 0; i < 5; ++i)
+            {
+                const bool ok = p.play (i, juce::File ("/nope/" + juce::String (i) + ".wav"));
+                expect (! ok);
+                expect (! p.isPlaying());
+            }
+        }
+
         beginTest ("stop() is a no-op when nothing is playing");
         {
             TrackPreviewPlayer p;
+            p.stop();
+            expect       (! p.isPlaying());
+            expectEquals (p.getPlayingTrackIndex(), -1);
+        }
+
+        beginTest ("stop() after a failed play() leaves the player idle");
+        {
+            TrackPreviewPlayer p;
+            p.play (3, juce::File ("/missing.wav"));
             p.stop();
             expect       (! p.isPlaying());
             expectEquals (p.getPlayingTrackIndex(), -1);

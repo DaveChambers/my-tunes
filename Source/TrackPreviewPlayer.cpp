@@ -70,9 +70,23 @@ bool TrackPreviewPlayer::play (int libraryTrackIndex, const juce::File& file)
     currentReaderSource = std::make_unique<juce::AudioFormatReaderSource> (
                               reader, /*deleteReaderWhenThisIsDeleted*/ true);
 
+    // CRITICAL: in JUCE 8 (incl. 8.0.4) AudioTransportSource::setSource
+    // takes (source, readAheadBufferSize, readerThread, ...). If
+    // readAheadBufferSize > 0 it constructs an internal
+    // BufferingAudioSource using `*readerThread` — passing a null
+    // thread there dereferences null and crashes the message thread on
+    // the next setNextReadPosition()/start() (we hit this exactly:
+    // pthread_mutex_lock on 0x218 inside TimeSliceThread::moveToFrontOfQueue).
+    //
+    // Disable read-ahead buffering by passing 0 here. For 20 short
+    // local files this is fine — the audio thread reads directly from
+    // the AudioFormatReaderSource. If we later want pre-buffering,
+    // TrackPreviewPlayer must own a long-lived juce::TimeSliceThread
+    // member, started in the ctor and stopped in the dtor, and pass
+    // its address here.
     transport.setSource (currentReaderSource.get(),
-                         /*readAheadBufferSize*/ 32768,
-                         /*readerThread*/        nullptr,
+                         /*readAheadBufferSize*/      0,
+                         /*readerThread*/             nullptr,
                          /*sourceSampleRateToCorrectFor*/ reader->sampleRate);
 
     transport.setPosition (0.0);
