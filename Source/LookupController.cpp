@@ -104,14 +104,29 @@ void LookupController::run()
         {
             if (idx < 0 || idx >= libraryRef.getNumTracks()) return;
             auto& tf = libraryRef.getTrack (idx);
-            tf.discogsStatus     = applied.status;
-            tf.discogsArtist     = applied.matchedArtist;
-            tf.discogsTitle      = applied.matchedTitle;
-            tf.discogsReleaseId  = applied.releaseId;
-            tf.discogsCoverUrl   = applied.coverUrl;
-            tf.cachedArtworkPath = path;
+            tf.discogsStatus       = applied.status;
+            tf.discogsArtist       = applied.matchedArtist;
+            tf.discogsTitle        = applied.matchedTitle;
+            tf.discogsReleaseId    = applied.releaseId;
+            tf.discogsCoverUrl     = applied.coverUrl;
+            tf.cachedArtworkPath   = path;
+            tf.discogsErrorReason  = applied.errorReason;
             libraryRef.sendChangeMessage();
         });
+
+        // 4b) Per-track callback so MainComponent can accumulate a summary
+        //     (found/uncertain/not-found/error counts + the most recent
+        //     error string for the diagnostic status line).
+        if (onTrackProcessed)
+        {
+            const auto cb        = onTrackProcessed; // copy for the lambda
+            const int  trackIdx  = idx;
+            const auto resultCopy = applied;
+            juce::MessageManager::callAsync ([cb, trackIdx, resultCopy]
+            {
+                if (cb) cb (trackIdx, resultCopy);
+            });
+        }
 
         // 5) Progress.
         const int done = ++processed;

@@ -45,7 +45,8 @@ struct TrackFile
     juce::String  discogsArtist;
     juce::String  discogsTitle;
     juce::String  discogsCoverUrl;
-    juce::File    cachedArtworkPath;   // if a thumbnail was downloaded
+    juce::File    cachedArtworkPath;       // if a thumbnail was downloaded
+    juce::String  discogsErrorReason;      // populated when status is Error
 
     // Plain ASCII status text for the table column / detail panel. We
     // deliberately avoid the em-dash / "smart quote" range — earlier

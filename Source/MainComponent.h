@@ -10,17 +10,18 @@
 #include "EmojiTagBoardComponent.h"
 #include "LookupController.h"
 #include "TrackDetailComponent.h"
+#include "TrackFile.h"
 #include "TrackGridComponent.h"
 #include "TrackLibrary.h"
 #include "TrackListComponent.h"
 
-// Top-level window contents.
-//
-// Toolbar:
-//   [Choose Folder]  folder/path  [Scan]  [Lookup Covers]  [List | Grid]  status
-//
-// Sidebar = emoji boards (filter), centre = list or grid, right = detail
-// panel, footer = Discogs attribution.
+// Build label shown in the footer right so Dave can immediately tell
+// which app build he's running. Bump the suffix on every behaviour
+// change.
+#ifndef MYTUNES_BUILD_LABEL
+ #define MYTUNES_BUILD_LABEL "v0.1 — Discogs auto-lookup"
+#endif
+
 class MainComponent : public juce::Component,
                       private juce::ChangeListener
 {
@@ -34,48 +35,50 @@ public:
 private:
     enum class ViewMode { List, Grid };
 
-    // --- model -------------------------------------------------------------
-    // NOTE: declaration order matters for clean shutdown. The library
-    // owns track data the LookupController's worker writes to via
-    // juce::MessageManager::callAsync. We declare the library first,
-    // then the controller — so on destruction the controller goes first
-    // (cancels its thread, joins) before the library is gone.
+    // Member ordering matters for clean shutdown:
+    // controller is destroyed before library + the helpers it depends on.
     TrackLibrary     library;
     DiscogsClient    discogsClient;
     ArtworkCache     artworkCache;
     LookupController lookupController { library, discogsClient, artworkCache };
 
-    // --- toolbar -----------------------------------------------------------
     juce::TextButton chooseFolderButton  { "Choose Folder" };
     juce::TextButton scanButton          { "Scan" };
-    juce::TextButton lookupCoversButton  { "Lookup Covers" };
+    juce::TextButton lookupCoversButton  { "Re-lookup" };
     juce::TextButton viewListButton      { "List" };
     juce::TextButton viewGridButton      { "Grid" };
     juce::Label      folderLabel;
     juce::Label      statusLabel;
+    juce::Label      diagnosticsLabel;
     juce::Label      attributionLabel;
+    juce::Label      versionLabel;
 
-    // --- main area ---------------------------------------------------------
     EmojiTagBoardComponent emojiBoard;
     TrackListComponent     listView   { library };
     TrackGridComponent     gridView   { library };
     TrackDetailComponent   detailView { library };
 
-    // --- runtime state -----------------------------------------------------
     ViewMode         viewMode           = ViewMode::List;
     int              activeBoardIndex   = -1;
     std::vector<int> visibleIndices;
     int              selectedTrackIndex = -1;
-    bool             isLookingUp        = false;
-    int              lookupDone         = 0;
-    int              lookupTotal        = 0;
+
+    // Discogs / lookup state, all maintained on the message thread.
+    bool             isLookingUp       = false;
+    int              lookupDone        = 0;
+    int              lookupTotal       = 0;
+    int              countFound        = 0;
+    int              countUncertain    = 0;
+    int              countNotFound     = 0;
+    int              countError        = 0;
+    juce::String     lastDiscogsError;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
 
-    // --- helpers -----------------------------------------------------------
     void onChooseFolderClicked();
     void runScan();
-    void startLookup();
+    void startAutoLookup();          // kicks the controller; auto after scan
+    void runManualLookup();          // toolbar "Re-lookup" — same path
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
@@ -85,8 +88,12 @@ private:
 
     void recomputeVisibleIndices();
     void recomputeBoardCounts();
+    void resetDiscogsCounters();
+    void onTrackLookupProcessed (int trackIndex, const DiscogsClient::Result&);
+
     void updateFolderLabel();
     void updateStatusLabel();
+    void updateDiagnosticsLabel();
     void updateButtonsEnabled();
 
     static juce::File getDefaultStartFolder();

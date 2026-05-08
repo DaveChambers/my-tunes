@@ -15,8 +15,8 @@ namespace
 
     juce::String varAsString (const juce::var& v)
     {
-        if (v.isString()) return v.toString();
-        if (v.isInt() || v.isInt64() || v.isDouble()) return v.toString();
+        if (v.isString())                                 return v.toString();
+        if (v.isInt() || v.isInt64() || v.isDouble())     return v.toString();
         return {};
     }
 }
@@ -46,7 +46,8 @@ DiscogsClient::Result DiscogsClient::lookup (const juce::String& artist,
 
     if (artist.isEmpty() && title.isEmpty())
     {
-        r.status = TrackFile::DiscogsStatus::NotSearched;
+        r.status      = TrackFile::DiscogsStatus::NotSearched;
+        r.errorReason = "empty artist + title";
         return r;
     }
 
@@ -56,23 +57,40 @@ DiscogsClient::Result DiscogsClient::lookup (const juce::String& artist,
     if (title.isNotEmpty())  url = url.withParameter ("track",  title);
     url = url.withParameter ("per_page", "5");
 
-    const auto opts = juce::URL::InputStreamOptions (
-                          juce::URL::ParameterHandling::inAddress)
-                          .withConnectionTimeoutMs (10000)
-                          .withExtraHeaders (makeExtraHeaders (token));
+    // WebInputStream lets us inspect HTTP status codes — createInputStream
+    // would just return null on any non-2xx and we'd lose the diagnostic.
+    juce::WebInputStream stream (url, /*isPost*/ false);
+    stream.withConnectionTimeout (10000)
+          .withExtraHeaders      (makeExtraHeaders (token));
 
-    auto stream = url.createInputStream (opts);
-    if (stream == nullptr)
+    if (! stream.connect (nullptr))
     {
-        r.status = TrackFile::DiscogsStatus::Error;
+        r.status      = TrackFile::DiscogsStatus::Error;
+        r.errorReason = "network: connect failed";
         return r;
     }
 
-    const auto body = stream->readEntireStreamAsString();
+    const int httpCode = stream.getStatusCode();
+    if (httpCode < 200 || httpCode >= 300)
+    {
+        r.status = TrackFile::DiscogsStatus::Error;
+        switch (httpCode)
+        {
+            case 401: r.errorReason = "HTTP 401 Unauthorized (bad token?)"; break;
+            case 403: r.errorReason = "HTTP 403 Forbidden";                 break;
+            case 404: r.errorReason = "HTTP 404 Not found";                 break;
+            case 429: r.errorReason = "HTTP 429 Rate-limited";              break;
+            default:  r.errorReason = "HTTP " + juce::String (httpCode);    break;
+        }
+        return r;
+    }
+
+    const auto body = stream.readEntireStreamAsString();
     const auto json = juce::JSON::parse (body);
     if (! json.isObject())
     {
-        r.status = TrackFile::DiscogsStatus::Error;
+        r.status      = TrackFile::DiscogsStatus::Error;
+        r.errorReason = "JSON parse error";
         return r;
     }
 
@@ -83,9 +101,8 @@ DiscogsClient::Result DiscogsClient::lookup (const juce::String& artist,
         return r;
     }
 
-    // Pick the first result that carries a thumbnail when possible —
-    // Dave wants visible cover art, so a result without an image is
-    // less useful even if it's a closer text match.
+    // Prefer first image-bearing result over a closer text match without art —
+    // Dave wants visible cover art.
     juce::var chosen;
     for (int i = 0; i < results.size(); ++i)
     {
@@ -106,10 +123,6 @@ DiscogsClient::Result DiscogsClient::lookup (const juce::String& artist,
     r.coverUrl     = varAsString (chosen.getProperty ("cover_image", {}));
     r.thumbUrl     = varAsString (chosen.getProperty ("thumb",       {}));
 
-    // Confidence heuristic: if the artist string appears in the matched
-    // result title (Discogs returns "Artist - Album" as a single field),
-    // we mark Found; otherwise we mark Uncertain so Dave can spot rough
-    // matches in the UI without us misleading the user.
     if (artist.isNotEmpty()
         && r.matchedTitle.containsIgnoreCase (artist))
     {

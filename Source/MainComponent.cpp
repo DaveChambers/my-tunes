@@ -1,7 +1,5 @@
 #include "MainComponent.h"
 
-#include "TrackFile.h"
-
 MainComponent::MainComponent()
 {
     library.addChangeListener (this);
@@ -15,7 +13,7 @@ MainComponent::MainComponent()
     scanButton.setEnabled (false);
 
     addAndMakeVisible (lookupCoversButton);
-    lookupCoversButton.onClick = [this] { startLookup(); };
+    lookupCoversButton.onClick = [this] { runManualLookup(); };
     lookupCoversButton.setEnabled (false);
 
     addAndMakeVisible (viewListButton);
@@ -38,6 +36,13 @@ MainComponent::MainComponent()
     statusLabel.setColour (juce::Label::textColourId, juce::Colours::lightgrey);
     statusLabel.setFont   (juce::Font (juce::FontOptions ("Helvetica", 12.0f, 0)));
 
+    // ---- second toolbar row: diagnostics ----------------------------------
+    addAndMakeVisible (diagnosticsLabel);
+    diagnosticsLabel.setJustificationType (juce::Justification::centredLeft);
+    diagnosticsLabel.setColour (juce::Label::textColourId,
+                                juce::Colours::lightgrey.withAlpha (0.85f));
+    diagnosticsLabel.setFont   (juce::Font (juce::FontOptions ("Helvetica", 11.0f, 0)));
+
     // ---- main area ---------------------------------------------------------
     addAndMakeVisible (emojiBoard);
     emojiBoard.onBoardClicked = [this] (int boardIndex) { onBoardClicked (boardIndex); };
@@ -49,7 +54,7 @@ MainComponent::MainComponent()
 
     addAndMakeVisible (detailView);
 
-    // ---- attribution footer ------------------------------------------------
+    // ---- footer ------------------------------------------------------------
     addAndMakeVisible (attributionLabel);
     attributionLabel.setText ("Data provided by Discogs.   "
                               "This application uses Discogs’ API but is not "
@@ -59,12 +64,24 @@ MainComponent::MainComponent()
     attributionLabel.setFont   (juce::Font (juce::FontOptions ("Helvetica", 11.0f, 0)));
     attributionLabel.setColour (juce::Label::textColourId, juce::Colours::lightgrey);
 
+    addAndMakeVisible (versionLabel);
+    versionLabel.setText (MYTUNES_BUILD_LABEL, juce::dontSendNotification);
+    versionLabel.setJustificationType (juce::Justification::centredRight);
+    versionLabel.setFont   (juce::Font (juce::FontOptions ("Helvetica", 10.5f, 0)));
+    versionLabel.setColour (juce::Label::textColourId,
+                            juce::Colours::lightgrey.withAlpha (0.65f));
+
     // ---- lookup wiring -----------------------------------------------------
     lookupController.onProgress = [this] (int done, int total)
     {
         lookupDone  = done;
         lookupTotal = total;
         updateStatusLabel();
+    };
+    lookupController.onTrackProcessed = [this] (int idx,
+                                                 const DiscogsClient::Result& r)
+    {
+        onTrackLookupProcessed (idx, r);
     };
     lookupController.onFinished = [this]
     {
@@ -73,10 +90,12 @@ MainComponent::MainComponent()
         lookupTotal = 0;
         updateButtonsEnabled();
         updateStatusLabel();
+        updateDiagnosticsLabel();
     };
 
     updateFolderLabel();
     updateStatusLabel();
+    updateDiagnosticsLabel();
     updateButtonsEnabled();
     recomputeBoardCounts();
 
@@ -97,19 +116,33 @@ void MainComponent::resized()
 {
     auto bounds = getLocalBounds();
 
-    // Footer
-    attributionLabel.setBounds (bounds.removeFromBottom (28).reduced (12, 4));
+    // Footer (two slots: centred attribution + right-side version label)
+    {
+        auto footer = bounds.removeFromBottom (28).reduced (12, 4);
+        const int versionWidth = 220;
+        if (footer.getWidth() > versionWidth + 100)
+        {
+            versionLabel.setBounds     (footer.removeFromRight (versionWidth));
+            attributionLabel.setBounds (footer);
+        }
+        else
+        {
+            // Window too narrow — stack: drop version label, show only attribution.
+            attributionLabel.setBounds (footer);
+            versionLabel.setBounds ({});
+        }
+    }
 
-    // Toolbar
+    // Top toolbar (44 tall)
     auto toolbar = bounds.removeFromTop (44).reduced (12, 6);
     chooseFolderButton.setBounds  (toolbar.removeFromLeft (140));
     toolbar.removeFromLeft (8);
     scanButton.setBounds          (toolbar.removeFromLeft (80));
     toolbar.removeFromLeft (8);
-    lookupCoversButton.setBounds  (toolbar.removeFromLeft (130));
+    lookupCoversButton.setBounds  (toolbar.removeFromLeft (110));
     toolbar.removeFromLeft (12);
 
-    statusLabel.setBounds         (toolbar.removeFromRight (260));
+    statusLabel.setBounds         (toolbar.removeFromRight (320));
     toolbar.removeFromRight (8);
 
     auto toggleArea = toolbar.removeFromRight (130);
@@ -118,6 +151,10 @@ void MainComponent::resized()
     toolbar.removeFromRight (8);
 
     folderLabel.setBounds         (toolbar);
+
+    // Diagnostics row (24 tall, just below the toolbar)
+    auto diagRow = bounds.removeFromTop (22);
+    diagnosticsLabel.setBounds (diagRow.reduced (12, 2));
 
     // Main area
     bounds.removeFromTop (4);
@@ -134,7 +171,7 @@ void MainComponent::resized()
 }
 
 // =============================================================================
-// Folder picking + scanning + lookup
+// Folder picking + scanning + auto-lookup
 // =============================================================================
 
 void MainComponent::onChooseFolderClicked()
@@ -155,6 +192,10 @@ void MainComponent::onChooseFolderClicked()
 
         library.scanFolder (folder, kSampleSize);
         scanButton.setEnabled (true);
+
+        // Auto-fire Discogs lookup for the new sample. The user shouldn't
+        // have to find a button to make this happen.
+        startAutoLookup();
     });
 }
 
@@ -162,38 +203,59 @@ void MainComponent::runScan()
 {
     if (! library.getFolder().isDirectory())
         return;
+
     library.scanFolder (library.getFolder(), kSampleSize);
+    startAutoLookup();
 }
 
-void MainComponent::startLookup()
+void MainComponent::startAutoLookup()
 {
     if (lookupController.isRunning() || library.getNumTracks() == 0)
         return;
 
-    // Prefer the filtered/visible set if a filter is active so users can
-    // target a smaller subset; otherwise look up everything we have.
     std::vector<int> indices;
-    if (activeBoardIndex >= 0 && ! visibleIndices.empty())
-    {
-        indices = visibleIndices;
-    }
-    else
-    {
-        const int n = library.getNumTracks();
-        indices.reserve ((std::size_t) n);
-        for (int i = 0; i < n; ++i)
-            indices.push_back (i);
-    }
+    const int n = library.getNumTracks();
+    indices.reserve ((std::size_t) n);
+    for (int i = 0; i < n; ++i)
+        indices.push_back (i);
 
     if (indices.empty()) return;
 
     isLookingUp = true;
     lookupDone  = 0;
     lookupTotal = (int) indices.size();
+    resetDiscogsCounters();
     updateButtonsEnabled();
     updateStatusLabel();
+    updateDiagnosticsLabel();
 
     lookupController.startLookup (indices);
+}
+
+void MainComponent::runManualLookup()
+{
+    // Same path as auto, just driven by the toolbar button. Useful for
+    // re-running after a connection / token change.
+    startAutoLookup();
+}
+
+void MainComponent::onTrackLookupProcessed (int /*trackIndex*/,
+                                             const DiscogsClient::Result& r)
+{
+    using S = TrackFile::DiscogsStatus;
+    switch (r.status)
+    {
+        case S::Found:      ++countFound;     break;
+        case S::Uncertain:  ++countUncertain; break;
+        case S::NotFound:   ++countNotFound;  break;
+        case S::Error:      ++countError;     break;
+        default:            break;
+    }
+
+    if (r.errorReason.isNotEmpty())
+        lastDiscogsError = r.errorReason;
+
+    updateDiagnosticsLabel();
 }
 
 // =============================================================================
@@ -206,6 +268,7 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
     recomputeBoardCounts();
     updateFolderLabel();
     updateStatusLabel();
+    updateDiagnosticsLabel();
     updateButtonsEnabled();
 }
 
@@ -278,6 +341,12 @@ void MainComponent::recomputeBoardCounts()
         emojiBoard.setBoardCount (i, library.countTracksWithTag (boards[(std::size_t) i].emoji));
 }
 
+void MainComponent::resetDiscogsCounters()
+{
+    countFound = countUncertain = countNotFound = countError = 0;
+    lastDiscogsError.clear();
+}
+
 void MainComponent::updateFolderLabel()
 {
     const auto f = library.getFolder();
@@ -296,7 +365,16 @@ void MainComponent::updateStatusLabel()
 
     if (isLookingUp && lookupTotal > 0)
     {
-        text << "   |   Looking up " << lookupDone << "/" << lookupTotal;
+        text << "   |   Discogs lookup " << lookupDone << "/" << lookupTotal;
+    }
+    else if (countFound + countUncertain + countNotFound + countError > 0)
+    {
+        text << "   |   Discogs complete: "
+             << countFound     << " found, "
+             << countUncertain << " uncertain, "
+             << countNotFound  << " not found";
+        if (countError > 0)
+            text << ", " << countError << " error";
     }
     else if (activeBoardIndex >= 0)
     {
@@ -307,6 +385,26 @@ void MainComponent::updateStatusLabel()
     }
 
     statusLabel.setText (text, juce::dontSendNotification);
+}
+
+void MainComponent::updateDiagnosticsLabel()
+{
+    juce::String text;
+    text << "Discogs: "
+         << (discogsClient.hasToken() ? "token" : "no token (unauth)")
+         << "   |   ";
+
+    if (isLookingUp)
+        text << "lookup running";
+    else if (lookupTotal == 0 && (countFound + countUncertain + countNotFound + countError) == 0)
+        text << "lookup idle";
+    else
+        text << "lookup complete";
+
+    if (lastDiscogsError.isNotEmpty())
+        text << "   |   last error: " << lastDiscogsError;
+
+    diagnosticsLabel.setText (text, juce::dontSendNotification);
 }
 
 void MainComponent::updateButtonsEnabled()

@@ -39,6 +39,13 @@ public:
     // (processed, total) — fires on the message thread after each task.
     std::function<void (int processed, int total)> onProgress;
 
+    // Fires on the message thread once each track's result is ready.
+    // Carries the per-track Discogs result so MainComponent can
+    // accumulate a summary (found/uncertain/not found/error counts +
+    // most recent error string) for the status label.
+    std::function<void (int trackIndex,
+                        const DiscogsClient::Result& r)> onTrackProcessed;
+
     // Fires on the message thread when the queue drains (or is cancelled).
     std::function<void()>                          onFinished;
 
