@@ -3,27 +3,32 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <memory>
+#include <vector>
 
 #include "EmojiTagBoardComponent.h"
 #include "TrackDetailComponent.h"
+#include "TrackGridComponent.h"
 #include "TrackLibrary.h"
 #include "TrackListComponent.h"
 
 // Top-level window contents.
 //
-// Layout (this commit):
-//   ┌──────────────── toolbar ─────────────────────┐
-//   │ [Choose Folder] folder/path  [Scan]  status   │
-//   ├─────────┬───────────────────────────┬────────┤
-//   │ emoji   │      list view            │ detail │
-//   │ boards  │                           │        │
-//   ├─────────┴───────────────────────────┴────────┤
-//   │           Discogs attribution                 │
-//   └───────────────────────────────────────────────┘
+// Layout:
+//   ┌──────────────────── toolbar ─────────────────────┐
+//   │ [Choose Folder] folder/path  [Scan]  [List|Grid]  │
+//   │                                            status │
+//   ├─────────┬──────────────────────────────┬────────┤
+//   │ emoji   │  list view OR grid view       │ detail │
+//   │ boards  │                               │        │
+//   ├─────────┴───────────────────────────────┴────────┤
+//   │              Discogs attribution                  │
+//   └────────────────────────────────────────────────────┘
 //
-// View toggle (List / Grid), search box, "Lookup Covers" button, and
-// drag-and-drop tagging arrive in later commits.
-class MainComponent : public juce::Component
+// View toggle, filter from emoji boards, right-click tagging in list,
+// detail panel — all live here. Discogs network lookup is still
+// stubbed.
+class MainComponent : public juce::Component,
+                      private juce::ChangeListener
 {
 public:
     MainComponent();
@@ -33,12 +38,16 @@ public:
     void resized() override;
 
 private:
+    enum class ViewMode { List, Grid };
+
     // --- model -------------------------------------------------------------
     TrackLibrary library;
 
     // --- toolbar -----------------------------------------------------------
     juce::TextButton chooseFolderButton { "Choose Folder" };
     juce::TextButton scanButton         { "Scan" };
+    juce::TextButton viewListButton     { "List" };
+    juce::TextButton viewGridButton     { "Grid" };
     juce::Label      folderLabel;
     juce::Label      statusLabel;
     juce::Label      attributionLabel;
@@ -46,21 +55,34 @@ private:
     // --- main area ---------------------------------------------------------
     EmojiTagBoardComponent emojiBoard;
     TrackListComponent     listView   { library };
+    TrackGridComponent     gridView   { library };
     TrackDetailComponent   detailView { library };
 
-    // --- file-chooser must outlive its callback ---------------------------
+    // --- runtime state -----------------------------------------------------
+    ViewMode         viewMode         = ViewMode::List;
+    int              activeBoardIndex = -1;     // -1 = no filter
+    std::vector<int> visibleIndices;            // computed from filter
+    int              selectedTrackIndex = -1;   // library index, -1 = none
+
     std::unique_ptr<juce::FileChooser> fileChooser;
 
+    // --- helpers -----------------------------------------------------------
     void onChooseFolderClicked();
     void runScan();
+
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
+
+    void setViewMode (ViewMode mode);
+    void onBoardClicked (int boardIndex);
+    void onTrackSelected (int trackIndex);
+
+    void recomputeVisibleIndices();
+    void recomputeBoardCounts();
     void updateFolderLabel();
     void updateStatusLabel();
 
-    // First place we suggest in the file chooser. Falls back to ~/Music if
-    // Dave's example path isn't present.
     static juce::File getDefaultStartFolder();
 
-    // First-version sample limit. Surfaced in the status line.
     static constexpr int kSampleSize = 20;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)

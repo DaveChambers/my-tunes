@@ -79,9 +79,12 @@ juce_add_console_app(MyTunesTests
 target_sources(MyTunesTests PRIVATE
     Source/Tests/TestMain.cpp
     Source/Tests/TrackFilenameParserTests.cpp
+    Source/Tests/TrackLibraryTaggingTests.cpp
     Source/TrackFilenameParser.cpp
     Source/TrackFilenameParser.h
     Source/TrackFile.h
+    Source/TrackLibrary.cpp
+    Source/TrackLibrary.h
 )
 
 target_compile_definitions(MyTunesTests PRIVATE

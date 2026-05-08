@@ -4,10 +4,14 @@
 
 class TrackLibrary;
 
-// Details for the currently selected track (filename, parsed fields,
-// emoji tags, priority slider, notes, Discogs match, cover image).
-// Stub for the skeleton commit.
-class TrackDetailComponent : public juce::Component
+// Right-side panel: details for the currently selected track.
+//
+// First version paints text directly; no inline editing yet beyond
+// emoji-tag toggling via the right-click menu in the list view.
+//
+// Listens to the library so tag changes refresh immediately.
+class TrackDetailComponent : public juce::Component,
+                              private juce::ChangeListener
 {
 public:
     explicit TrackDetailComponent (TrackLibrary& library);
@@ -16,10 +20,12 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
-    // Index into the library's track vector; -1 means "no selection".
+    // Library index, or -1 for "no selection".
     void setSelectedTrackIndex (int index);
 
 private:
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
+
     TrackLibrary& library;
     int           selectedIndex = -1;
 

@@ -1,7 +1,11 @@
 #include "MainComponent.h"
 
+#include "TrackFile.h"
+
 MainComponent::MainComponent()
 {
+    library.addChangeListener (this);
+
     // ---- toolbar -----------------------------------------------------------
     addAndMakeVisible (chooseFolderButton);
     chooseFolderButton.onClick = [this] { onChooseFolderClicked(); };
@@ -9,6 +13,17 @@ MainComponent::MainComponent()
     addAndMakeVisible (scanButton);
     scanButton.onClick = [this] { runScan(); };
     scanButton.setEnabled (false);
+
+    addAndMakeVisible (viewListButton);
+    viewListButton.setRadioGroupId (1);
+    viewListButton.setClickingTogglesState (true);
+    viewListButton.setToggleState (true, juce::dontSendNotification);
+    viewListButton.onClick = [this] { setViewMode (ViewMode::List); };
+
+    addAndMakeVisible (viewGridButton);
+    viewGridButton.setRadioGroupId (1);
+    viewGridButton.setClickingTogglesState (true);
+    viewGridButton.onClick = [this] { setViewMode (ViewMode::Grid); };
 
     addAndMakeVisible (folderLabel);
     folderLabel.setColour (juce::Label::textColourId, juce::Colours::lightgrey);
@@ -21,7 +36,13 @@ MainComponent::MainComponent()
 
     // ---- main area ---------------------------------------------------------
     addAndMakeVisible (emojiBoard);
+    emojiBoard.onBoardClicked = [this] (int boardIndex) { onBoardClicked (boardIndex); };
+
     addAndMakeVisible (listView);
+    addChildComponent  (gridView);   // hidden until toggled in
+    listView.onTrackSelected = [this] (int idx) { onTrackSelected (idx); };
+    gridView.onTrackSelected = [this] (int idx) { onTrackSelected (idx); };
+
     addAndMakeVisible (detailView);
 
     // ---- attribution footer ------------------------------------------------
@@ -36,11 +57,15 @@ MainComponent::MainComponent()
 
     updateFolderLabel();
     updateStatusLabel();
+    recomputeBoardCounts();
 
     setSize (1200, 800);
 }
 
-MainComponent::~MainComponent() = default;
+MainComponent::~MainComponent()
+{
+    library.removeChangeListener (this);
+}
 
 void MainComponent::paint (juce::Graphics& g)
 {
@@ -61,10 +86,18 @@ void MainComponent::resized()
     scanButton.setBounds         (toolbar.removeFromLeft (90));
     toolbar.removeFromLeft (12);
 
-    statusLabel.setBounds        (toolbar.removeFromRight (220));
+    statusLabel.setBounds        (toolbar.removeFromRight (240));
+    toolbar.removeFromRight (8);
+
+    // List/Grid toggle on the right of the toolbar
+    auto toggleArea = toolbar.removeFromRight (130);
+    viewGridButton.setBounds (toggleArea.removeFromRight (60));
+    viewListButton.setBounds (toggleArea.removeFromRight (60));
+    toolbar.removeFromRight (8);
+
     folderLabel.setBounds        (toolbar);
 
-    // Main area: left sidebar | list | detail
+    // Main area
     bounds.removeFromTop (4);
     bounds.removeFromBottom (4);
 
@@ -72,8 +105,15 @@ void MainComponent::resized()
     auto detail  = bounds.removeFromRight (320);
     emojiBoard.setBounds (sidebar.reduced (8));
     detailView.setBounds (detail.reduced (8));
-    listView.setBounds   (bounds.reduced (4));
+
+    auto centre = bounds.reduced (4);
+    listView.setBounds (centre);
+    gridView.setBounds (centre);
 }
+
+// =============================================================================
+// Folder picking + scanning
+// =============================================================================
 
 void MainComponent::onChooseFolderClicked()
 {
@@ -91,12 +131,9 @@ void MainComponent::onChooseFolderClicked()
         if (folder == juce::File{} || ! folder.isDirectory())
             return;
 
-        library.scanFolder (juce::File{}, kSampleSize); // clear, then scan
-        library.scanFolder (folder,        kSampleSize);
-        listView.refresh();
-        detailView.setSelectedTrackIndex (-1);
-        updateFolderLabel();
-        updateStatusLabel();
+        library.scanFolder (folder, kSampleSize);
+        // (library broadcasts on scan; our changeListenerCallback will refresh
+        //  visible indices, board counts, status, etc.)
         scanButton.setEnabled (true);
     });
 }
@@ -107,8 +144,97 @@ void MainComponent::runScan()
         return;
 
     library.scanFolder (library.getFolder(), kSampleSize);
-    listView.refresh();
+}
+
+// =============================================================================
+// Reactions to library changes
+// =============================================================================
+
+void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    recomputeVisibleIndices();
+    recomputeBoardCounts();
+    updateFolderLabel();
     updateStatusLabel();
+}
+
+// =============================================================================
+// View mode + filter
+// =============================================================================
+
+void MainComponent::setViewMode (ViewMode mode)
+{
+    viewMode = mode;
+    listView.setVisible (mode == ViewMode::List);
+    gridView.setVisible (mode == ViewMode::Grid);
+
+    // Sync the toggle buttons in case this came from anywhere other than
+    // the buttons themselves.
+    viewListButton.setToggleState (mode == ViewMode::List, juce::dontSendNotification);
+    viewGridButton.setToggleState (mode == ViewMode::Grid, juce::dontSendNotification);
+}
+
+void MainComponent::onBoardClicked (int boardIndex)
+{
+    if (boardIndex == activeBoardIndex)
+        activeBoardIndex = -1;          // toggle off
+    else
+        activeBoardIndex = boardIndex;
+
+    emojiBoard.setActiveBoardIndex (activeBoardIndex);
+    recomputeVisibleIndices();
+    updateStatusLabel();
+}
+
+void MainComponent::onTrackSelected (int trackIndex)
+{
+    selectedTrackIndex = trackIndex;
+    detailView.setSelectedTrackIndex (trackIndex);
+}
+
+// =============================================================================
+// Recomputes
+// =============================================================================
+
+void MainComponent::recomputeVisibleIndices()
+{
+    visibleIndices.clear();
+
+    const int n = library.getNumTracks();
+    if (activeBoardIndex < 0)
+    {
+        // No filter: views fall back to "all tracks" if we hand them an
+        // empty vector — slightly more efficient and avoids redundant
+        // mapping work in the common case.
+    }
+    else
+    {
+        const auto& boards = EmojiTagBoardComponent::getBoards();
+        const auto  emoji  = boards[(std::size_t) activeBoardIndex].emoji;
+        for (int i = 0; i < n; ++i)
+            if (library.getTrack (i).emojiTags.contains (emoji))
+                visibleIndices.push_back (i);
+    }
+
+    listView.setVisibleTrackIndices (visibleIndices);
+    gridView.setVisibleTrackIndices (visibleIndices);
+
+    // If the current detail selection vanished from the visible set
+    // because of the new filter, drop it.
+    if (selectedTrackIndex >= 0 && activeBoardIndex >= 0)
+    {
+        const auto& boards = EmojiTagBoardComponent::getBoards();
+        const auto  emoji  = boards[(std::size_t) activeBoardIndex].emoji;
+        if (! library.getTrack (selectedTrackIndex).emojiTags.contains (emoji))
+            onTrackSelected (-1);
+    }
+}
+
+void MainComponent::recomputeBoardCounts()
+{
+    const auto& boards = EmojiTagBoardComponent::getBoards();
+    for (int i = 0; i < (int) boards.size(); ++i)
+        emojiBoard.setBoardCount (i, library.countTracksWithTag (boards[(std::size_t) i].emoji));
 }
 
 void MainComponent::updateFolderLabel()
@@ -122,9 +248,19 @@ void MainComponent::updateFolderLabel()
 void MainComponent::updateStatusLabel()
 {
     const int n = library.getNumTracks();
+
     juce::String text;
-    text << "Sample mode: " << kSampleSize << " tracks   |   "
-         << n << " loaded";
+    text << "Sample mode: " << kSampleSize
+         << "   |   "        << n << " loaded";
+
+    if (activeBoardIndex >= 0)
+    {
+        const auto& boards = EmojiTagBoardComponent::getBoards();
+        const auto& b      = boards[(std::size_t) activeBoardIndex];
+        text << "   |   filtered: " << b.emoji << " " << b.label
+             << " (" << (int) visibleIndices.size() << ")";
+    }
+
     statusLabel.setText (text, juce::dontSendNotification);
 }
 

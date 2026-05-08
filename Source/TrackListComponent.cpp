@@ -1,11 +1,8 @@
 #include "TrackListComponent.h"
 
+#include "EmojiTagBoardComponent.h"
 #include "TrackFile.h"
 #include "TrackLibrary.h"
-
-namespace
-{
-}
 
 TrackListComponent::TrackListComponent (TrackLibrary& l)
     : library (l), table ("tracks", this)
@@ -26,9 +23,14 @@ TrackListComponent::TrackListComponent (TrackLibrary& l)
     h.addColumn ("Tags",     ColTags,    120);
     h.addColumn ("Priority", ColPriority, 80);
     h.addColumn ("Discogs",  ColDiscogs, 100);
+
+    library.addChangeListener (this);
 }
 
-TrackListComponent::~TrackListComponent() = default;
+TrackListComponent::~TrackListComponent()
+{
+    library.removeChangeListener (this);
+}
 
 void TrackListComponent::resized()
 {
@@ -41,9 +43,34 @@ void TrackListComponent::refresh()
     table.repaint();
 }
 
+void TrackListComponent::setVisibleTrackIndices (std::vector<int> indices)
+{
+    visibleIndices = std::move (indices);
+    table.deselectAllRows();
+    refresh();
+}
+
+void TrackListComponent::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    refresh();
+}
+
+int TrackListComponent::rowToLibraryIndex (int rowNumber) const
+{
+    if (rowNumber < 0) return -1;
+    if (visibleIndices.empty())
+    {
+        return rowNumber < library.getNumTracks() ? rowNumber : -1;
+    }
+    if (rowNumber < (int) visibleIndices.size())
+        return visibleIndices[(std::size_t) rowNumber];
+    return -1;
+}
+
 int TrackListComponent::getNumRows()
 {
-    return library.getNumTracks();
+    return visibleIndices.empty() ? library.getNumTracks()
+                                  : (int) visibleIndices.size();
 }
 
 void TrackListComponent::paintRowBackground (juce::Graphics& g, int rowNumber,
@@ -61,10 +88,11 @@ void TrackListComponent::paintRowBackground (juce::Graphics& g, int rowNumber,
 void TrackListComponent::paintCell (juce::Graphics& g, int rowNumber, int columnId,
                                     int width, int height, bool /*rowIsSelected*/)
 {
-    if (rowNumber < 0 || rowNumber >= library.getNumTracks())
+    const int idx = rowToLibraryIndex (rowNumber);
+    if (idx < 0 || idx >= library.getNumTracks())
         return;
 
-    const auto& tf = library.getTrack (rowNumber);
+    const auto& tf = library.getTrack (idx);
 
     g.setColour (juce::Colours::white.withAlpha (0.92f));
     g.setFont   (juce::Font (juce::FontOptions ("Helvetica", 13.0f, 0)));
@@ -87,4 +115,52 @@ void TrackListComponent::paintCell (juce::Graphics& g, int rowNumber, int column
                 juce::Rectangle<int> (4, 0, width - 8, height),
                 juce::Justification::centredLeft,
                 /*useEllipsesIfTooBig*/ true);
+}
+
+void TrackListComponent::cellClicked (int rowNumber, int /*columnId*/,
+                                      const juce::MouseEvent& e)
+{
+    if (e.mods.isPopupMenu())
+    {
+        showTagPopupMenu (rowNumber);
+        return;
+    }
+}
+
+void TrackListComponent::selectedRowsChanged (int lastRowSelected)
+{
+    if (onTrackSelected)
+        onTrackSelected (rowToLibraryIndex (lastRowSelected));
+}
+
+void TrackListComponent::showTagPopupMenu (int rowNumber)
+{
+    const int trackIdx = rowToLibraryIndex (rowNumber);
+    if (trackIdx < 0) return;
+
+    const auto& tf = library.getTrack (trackIdx);
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Tag with...");
+
+    const auto& boards = EmojiTagBoardComponent::getBoards();
+    for (int i = 0; i < (int) boards.size(); ++i)
+    {
+        const auto& b      = boards[(std::size_t) i];
+        const bool  hasTag = tf.emojiTags.contains (b.emoji);
+        menu.addItem (i + 1,                                   // itemID is 1-based
+                      b.emoji + "  " + b.label,
+                      /*isActive=*/ true,
+                      /*isTicked=*/ hasTag);
+    }
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&table),
+                        [this, trackIdx] (int chosen)
+    {
+        if (chosen <= 0) return;
+        const auto& boardsCb = EmojiTagBoardComponent::getBoards();
+        const int   boardIdx = chosen - 1;
+        if (boardIdx < 0 || boardIdx >= (int) boardsCb.size()) return;
+        library.toggleEmojiTag (trackIdx, boardsCb[(std::size_t) boardIdx].emoji);
+    });
 }
