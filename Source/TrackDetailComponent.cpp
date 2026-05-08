@@ -2,15 +2,19 @@
 
 #include "TrackFile.h"
 #include "TrackLibrary.h"
+#include "TrackPreviewPlayer.h"
 
-TrackDetailComponent::TrackDetailComponent (TrackLibrary& l) : library (l)
+TrackDetailComponent::TrackDetailComponent (TrackLibrary& l, TrackPreviewPlayer& p)
+    : library (l), player (p)
 {
     library.addChangeListener (this);
+    player .addChangeListener (this);
 }
 
 TrackDetailComponent::~TrackDetailComponent()
 {
     library.removeChangeListener (this);
+    player .removeChangeListener (this);
 }
 
 void TrackDetailComponent::changeListenerCallback (juce::ChangeBroadcaster*)
@@ -125,8 +129,24 @@ void TrackDetailComponent::paint (juce::Graphics& g)
     {
         if (tf.discogsArtist.isNotEmpty() || tf.discogsTitle.isNotEmpty())
             drawLabelValue (g, bounds, "Matched",
-                            tf.discogsArtist + " — " + tf.discogsTitle);
+                            tf.discogsArtist + " - " + tf.discogsTitle);
         if (tf.discogsReleaseId.isNotEmpty())
             drawLabelValue (g, bounds, "Release ID", tf.discogsReleaseId);
     }
+
+    if (tf.discogsStatus == TrackFile::DiscogsStatus::Error
+        && tf.discogsErrorReason.isNotEmpty())
+    {
+        drawLabelValue (g, bounds, "Discogs error", tf.discogsErrorReason);
+    }
+
+    // Playback row
+    const bool isPlayingThis = (player.getPlayingTrackIndex() == selectedIndex);
+    drawLabelValue (g, bounds, "Playback",
+                    isPlayingThis ? juce::String ("Playing")
+                                  : juce::String ("Stopped"));
+
+    const auto err = player.getLastError();
+    if (err.isNotEmpty() && ! isPlayingThis)
+        drawLabelValue (g, bounds, "Playback error", err);
 }

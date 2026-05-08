@@ -43,6 +43,8 @@ target_sources(MyTunes PRIVATE
     Source/ArtworkCache.h
     Source/LookupController.cpp
     Source/LookupController.h
+    Source/TrackPreviewPlayer.cpp
+    Source/TrackPreviewPlayer.h
     Source/TrackListComponent.cpp
     Source/TrackListComponent.h
     Source/TrackGridComponent.cpp
@@ -57,11 +59,15 @@ target_compile_definitions(MyTunes PRIVATE
     JUCE_USE_CURL=0
     JUCE_WEB_BROWSER=0
     JUCE_STANDALONE_APPLICATION=1
+    JUCE_USE_MP3AUDIOFORMAT=1
     DONT_SET_USING_JUCE_NAMESPACE=1
     MYTUNES_VERSION_STRING="${PROJECT_VERSION}"
 )
 
 target_link_libraries(MyTunes PRIVATE
+    juce::juce_audio_basics
+    juce::juce_audio_devices
+    juce::juce_audio_formats
     juce::juce_core
     juce::juce_data_structures
     juce::juce_events
@@ -82,11 +88,14 @@ target_sources(MyTunesTests PRIVATE
     Source/Tests/TestMain.cpp
     Source/Tests/TrackFilenameParserTests.cpp
     Source/Tests/TrackLibraryTaggingTests.cpp
+    Source/Tests/TrackPreviewPlayerTests.cpp
     Source/TrackFilenameParser.cpp
     Source/TrackFilenameParser.h
     Source/TrackFile.h
     Source/TrackLibrary.cpp
     Source/TrackLibrary.h
+    Source/TrackPreviewPlayer.cpp
+    Source/TrackPreviewPlayer.h
 )
 
 target_compile_definitions(MyTunesTests PRIVATE
@@ -94,10 +103,14 @@ target_compile_definitions(MyTunesTests PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_STANDALONE_APPLICATION=1
     JUCE_UNIT_TESTS=1
+    JUCE_USE_MP3AUDIOFORMAT=1
     DONT_SET_USING_JUCE_NAMESPACE=1
 )
 
 target_link_libraries(MyTunesTests PRIVATE
+    juce::juce_audio_basics
+    juce::juce_audio_devices
+    juce::juce_audio_formats
     juce::juce_core
     juce::juce_data_structures
     juce::juce_events

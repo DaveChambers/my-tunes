@@ -14,12 +14,13 @@
 #include "TrackGridComponent.h"
 #include "TrackLibrary.h"
 #include "TrackListComponent.h"
+#include "TrackPreviewPlayer.h"
 
 // Build label shown in the footer right so Dave can immediately tell
 // which app build he's running. Bump the suffix on every behaviour
 // change.
 #ifndef MYTUNES_BUILD_LABEL
- #define MYTUNES_BUILD_LABEL "v0.1 — Discogs auto-lookup"
+ #define MYTUNES_BUILD_LABEL "v0.1 - audio preview"
 #endif
 
 class MainComponent : public juce::Component,
@@ -37,10 +38,11 @@ private:
 
     // Member ordering matters for clean shutdown:
     // controller is destroyed before library + the helpers it depends on.
-    TrackLibrary     library;
-    DiscogsClient    discogsClient;
-    ArtworkCache     artworkCache;
-    LookupController lookupController { library, discogsClient, artworkCache };
+    TrackLibrary       library;
+    DiscogsClient      discogsClient;
+    ArtworkCache       artworkCache;
+    LookupController   lookupController { library, discogsClient, artworkCache };
+    TrackPreviewPlayer previewPlayer;
 
     juce::TextButton chooseFolderButton  { "Choose Folder" };
     juce::TextButton scanButton          { "Scan" };
@@ -54,9 +56,9 @@ private:
     juce::Label      versionLabel;
 
     EmojiTagBoardComponent emojiBoard;
-    TrackListComponent     listView   { library };
-    TrackGridComponent     gridView   { library };
-    TrackDetailComponent   detailView { library };
+    TrackListComponent     listView   { library, previewPlayer };
+    TrackGridComponent     gridView   { library, previewPlayer };
+    TrackDetailComponent   detailView { library, previewPlayer };
 
     ViewMode         viewMode           = ViewMode::List;
     int              activeBoardIndex   = -1;
@@ -90,6 +92,8 @@ private:
     void recomputeBoardCounts();
     void resetDiscogsCounters();
     void onTrackLookupProcessed (int trackIndex, const DiscogsClient::Result&);
+
+    void togglePlayback (int trackIndex);
 
     void updateFolderLabel();
     void updateStatusLabel();

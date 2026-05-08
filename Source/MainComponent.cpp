@@ -49,8 +49,12 @@ MainComponent::MainComponent()
 
     addAndMakeVisible (listView);
     addChildComponent  (gridView);
-    listView.onTrackSelected = [this] (int idx) { onTrackSelected (idx); };
-    gridView.onTrackSelected = [this] (int idx) { onTrackSelected (idx); };
+    listView.onTrackSelected       = [this] (int idx) { onTrackSelected (idx); };
+    listView.onPlayToggleRequested = [this] (int idx) { togglePlayback   (idx); };
+    gridView.onTrackSelected       = [this] (int idx) { onTrackSelected (idx); };
+    gridView.onPlayToggleRequested = [this] (int idx) { togglePlayback   (idx); };
+
+    previewPlayer.addChangeListener (this);
 
     addAndMakeVisible (detailView);
 
@@ -104,6 +108,7 @@ MainComponent::MainComponent()
 
 MainComponent::~MainComponent()
 {
+    previewPlayer.removeChangeListener (this);
     library.removeChangeListener (this);
 }
 
@@ -264,12 +269,34 @@ void MainComponent::onTrackLookupProcessed (int /*trackIndex*/,
 
 void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
 {
+    // Library changes (scan / tags) and preview-player changes (play /
+    // stop) both come through here. Both want a status refresh; only
+    // library changes need to recompute filter / board counts. Cheap
+    // enough to do unconditionally.
     recomputeVisibleIndices();
     recomputeBoardCounts();
     updateFolderLabel();
     updateStatusLabel();
     updateDiagnosticsLabel();
     updateButtonsEnabled();
+}
+
+void MainComponent::togglePlayback (int trackIndex)
+{
+    if (trackIndex < 0 || trackIndex >= library.getNumTracks())
+        return;
+
+    if (previewPlayer.getPlayingTrackIndex() == trackIndex)
+    {
+        previewPlayer.stop();
+        return;
+    }
+
+    const auto& tf = library.getTrack (trackIndex);
+    if (! tf.file.existsAsFile())
+        return;
+
+    previewPlayer.play (trackIndex, tf.file);
 }
 
 // =============================================================================
@@ -360,6 +387,26 @@ void MainComponent::updateStatusLabel()
     const int n = library.getNumTracks();
 
     juce::String text;
+
+    // Top priority: playback state.
+    if (previewPlayer.isPlaying())
+    {
+        const int idx = previewPlayer.getPlayingTrackIndex();
+        if (idx >= 0 && idx < library.getNumTracks())
+        {
+            const auto& tf = library.getTrack (idx);
+            text << "Playing: " << tf.artist
+                 << (tf.title.isNotEmpty() ? juce::String (" - ") + tf.title
+                                           : juce::String());
+        }
+        else
+        {
+            text << "Playing";
+        }
+        statusLabel.setText (text, juce::dontSendNotification);
+        return;
+    }
+
     text << "Sample mode: " << kSampleSize
          << "   |   "        << n << " loaded";
 

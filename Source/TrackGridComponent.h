@@ -6,20 +6,17 @@
 #include <vector>
 
 class TrackLibrary;
+class TrackPreviewPlayer;
 
 // Tile/card grid of tracks. Cards show:
-//   - cover area (placeholder until DiscogsClient + ArtworkCache wire up)
-//   - artist, title
-//   - key + BPM
-//   - emoji tags
-//   - Discogs status
-//
-// Same visible-indices contract as TrackListComponent.
+//   - cover area (cached thumbnail or placeholder)
+//   - centred play / stop overlay (click toggles preview playback)
+//   - artist, title, key + BPM, Discogs status, emoji tags
 class TrackGridComponent : public juce::Component,
                             private juce::ChangeListener
 {
 public:
-    explicit TrackGridComponent (TrackLibrary& library);
+    TrackGridComponent (TrackLibrary& library, TrackPreviewPlayer& player);
     ~TrackGridComponent() override;
 
     void paint (juce::Graphics&) override;
@@ -30,22 +27,23 @@ public:
     void setVisibleTrackIndices (std::vector<int> indices);
 
     std::function<void (int trackIndex)> onTrackSelected;
+    std::function<void (int trackIndex)> onPlayToggleRequested;
 
 private:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
     int  numVisible() const;
-    int  visibleAt (int n) const; // -> library index, or -1
-    juce::Rectangle<int> cardRect (int cardIndex,
-                                    int cardW, int cardH,
-                                    int cols) const;
+    int  visibleAt (int n) const;
+    juce::Rectangle<int> cardRect    (int cardIndex, int cardW, int cardH, int cols) const;
+    juce::Rectangle<int> playHitRect (juce::Rectangle<int> coverArea) const;
 
     void paintCard (juce::Graphics& g, int libraryIndex,
-                    juce::Rectangle<int> bounds, bool selected) const;
+                    juce::Rectangle<int> bounds, bool selected, bool isPlayingThis) const;
 
-    TrackLibrary&    library;
-    std::vector<int> visibleIndices;
-    int              selectedCardIndex = -1; // visible-card index
+    TrackLibrary&       library;
+    TrackPreviewPlayer& player;
+    std::vector<int>    visibleIndices;
+    int                 selectedCardIndex = -1;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TrackGridComponent)
 };

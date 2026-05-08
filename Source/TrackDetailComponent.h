@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 class TrackLibrary;
+class TrackPreviewPlayer;
 
 // Right-side panel: details for the currently selected track.
 //
@@ -14,7 +15,7 @@ class TrackDetailComponent : public juce::Component,
                               private juce::ChangeListener
 {
 public:
-    explicit TrackDetailComponent (TrackLibrary& library);
+    TrackDetailComponent (TrackLibrary& library, TrackPreviewPlayer& player);
     ~TrackDetailComponent() override;
 
     void paint (juce::Graphics&) override;
@@ -26,8 +27,9 @@ public:
 private:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
-    TrackLibrary& library;
-    int           selectedIndex = -1;
+    TrackLibrary&       library;
+    TrackPreviewPlayer& player;
+    int                 selectedIndex = -1;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TrackDetailComponent)
 };
