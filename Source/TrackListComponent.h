@@ -55,19 +55,35 @@ private:
                              bool rowIsSelected) override;
     void paintCell (juce::Graphics&, int rowNumber, int columnId, int width, int height,
                     bool rowIsSelected) override;
-    void cellClicked (int rowNumber, int columnId, const juce::MouseEvent& e) override;
+    void cellClicked       (int rowNumber, int columnId, const juce::MouseEvent& e) override;
+    void cellDoubleClicked (int rowNumber, int columnId, const juce::MouseEvent& e) override;
     void selectedRowsChanged (int lastRowSelected) override;
+    void sortOrderChanged    (int newSortColumnId, bool isForwards) override;
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
-    void showTagPopupMenu (int rowNumber);
-    int  rowToLibraryIndex (int rowNumber) const;
+    // Popup menu shown at `screenPos` (absolute screen coords).
+    void showTagPopupMenu (int trackIndex, juce::Point<int> screenPos);
+
+    int  rowToLibraryIndex      (int rowNumber)   const;
+    int  libraryIndexToRow      (int libraryIdx)  const;
+
+    void rebuildDisplayedIndices();
+    void applySortToDisplayedIndices();
 
     TrackLibrary&       library;
     TrackPreviewPlayer& player;
     juce::TableListBox  table;
 
-    std::vector<int> visibleIndices;
+    // Filter input from MainComponent. Empty == "all tracks".
+    std::vector<int> baseIndices;
+
+    // What we actually paint, in display order. Always populated;
+    // reflects baseIndices through the current sort.
+    std::vector<int> displayedIndices;
+
+    int  sortColumn   = 0;     // 0 = no sort (folder order)
+    bool sortForwards = true;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TrackListComponent)
 };

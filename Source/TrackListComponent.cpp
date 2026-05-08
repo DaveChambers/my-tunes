@@ -1,5 +1,7 @@
 #include "TrackListComponent.h"
 
+#include <algorithm>
+
 #include "EmojiTagBoardComponent.h"
 #include "TrackFile.h"
 #include "TrackLibrary.h"
@@ -7,7 +9,6 @@
 
 namespace
 {
-    // Draws a play or stop glyph centred in `bounds`.
     void paintTransportGlyph (juce::Graphics& g,
                               juce::Rectangle<int> bounds,
                               bool                 isPlaying)
@@ -19,7 +20,6 @@ namespace
 
         if (isPlaying)
         {
-            // Stop: square
             const float side = r * 1.5f;
             g.fillRect (juce::Rectangle<float> (cx - side / 2,
                                                  cy - side / 2,
@@ -27,7 +27,6 @@ namespace
         }
         else
         {
-            // Play: right-pointing triangle
             juce::Path p;
             p.startNewSubPath (cx - r * 0.6f, cy - r);
             p.lineTo          (cx - r * 0.6f, cy + r);
@@ -49,6 +48,7 @@ TrackListComponent::TrackListComponent (TrackLibrary& l, TrackPreviewPlayer& p)
     table.getHeader().setStretchToFitActive (true);
 
     auto& h = table.getHeader();
+    // sortable is in defaultFlags so all of these are clickable headers.
     h.addColumn ("Key",       ColKey,       60);
     h.addColumn ("BPM",       ColBpm,       60);
     h.addColumn ("Artist",    ColArtist,   200);
@@ -57,10 +57,15 @@ TrackListComponent::TrackListComponent (TrackLibrary& l, TrackPreviewPlayer& p)
     h.addColumn ("Tags",      ColTags,     110);
     h.addColumn ("Priority",  ColPriority,  72);
     h.addColumn ("Discogs",   ColDiscogs,   90);
-    h.addColumn ("Transport", ColTransport, 70);
+    h.addColumn ("Transport", ColTransport, 70,
+                 /*minimumWidth*/ 50, /*maximumWidth*/ -1,
+                 /*propertyFlags*/ juce::TableHeaderComponent::visible
+                                  | juce::TableHeaderComponent::resizable);
 
     library.addChangeListener (this);
     player .addChangeListener (this);
+
+    rebuildDisplayedIndices();
 }
 
 TrackListComponent::~TrackListComponent()
@@ -76,36 +81,105 @@ void TrackListComponent::resized()
 
 void TrackListComponent::refresh()
 {
+    rebuildDisplayedIndices();
     table.updateContent();
     table.repaint();
 }
 
 void TrackListComponent::setVisibleTrackIndices (std::vector<int> indices)
 {
-    visibleIndices = std::move (indices);
+    baseIndices = std::move (indices);
+    rebuildDisplayedIndices();
     table.deselectAllRows();
-    refresh();
+    table.updateContent();
+    table.repaint();
 }
 
 void TrackListComponent::changeListenerCallback (juce::ChangeBroadcaster*)
 {
-    refresh();
+    // Library or player broadcast — track count may have changed (after
+    // a scan) or the per-row content may have updated (Discogs / tags /
+    // playback state). Rebuild displayed indices so the table mapping
+    // is correct, then repaint.
+    rebuildDisplayedIndices();
+    table.updateContent();
+    table.repaint();
+}
+
+void TrackListComponent::rebuildDisplayedIndices()
+{
+    displayedIndices.clear();
+
+    if (baseIndices.empty())
+    {
+        const int n = library.getNumTracks();
+        displayedIndices.reserve ((std::size_t) n);
+        for (int i = 0; i < n; ++i)
+            displayedIndices.push_back (i);
+    }
+    else
+    {
+        displayedIndices = baseIndices;
+    }
+
+    if (sortColumn != 0)
+        applySortToDisplayedIndices();
+}
+
+void TrackListComponent::applySortToDisplayedIndices()
+{
+    auto& lib = library;
+    const int  col = sortColumn;
+    const bool fwd = sortForwards;
+
+    auto less = [&lib, col] (int a, int b) -> bool
+    {
+        const auto& ta = lib.getTrack (a);
+        const auto& tb = lib.getTrack (b);
+        switch (col)
+        {
+            case ColKey:      return ta.key.compareNatural (tb.key)         < 0;
+            case ColBpm:      return ta.bpm                                  < tb.bpm;
+            case ColArtist:   return ta.artist.compareNatural (tb.artist)    < 0;
+            case ColTitle:    return ta.title.compareNatural (tb.title)      < 0;
+            case ColVersion:  return ta.version.compareNatural (tb.version)  < 0;
+            case ColTags:     return ta.emojiTags.joinIntoString (" ")
+                                       .compareNatural (tb.emojiTags.joinIntoString (" ")) < 0;
+            case ColPriority: return ta.priority                              < tb.priority;
+            case ColDiscogs:  return TrackFile::discogsStatusText (ta.discogsStatus)
+                                       .compareNatural (TrackFile::discogsStatusText (tb.discogsStatus)) < 0;
+            default:          return false;
+        }
+    };
+
+    auto comp = [less, fwd] (int a, int b) -> bool
+    {
+        return fwd ? less (a, b) : less (b, a);
+    };
+
+    // Stable sort so equal-keyed rows keep their relative order.
+    std::stable_sort (displayedIndices.begin(), displayedIndices.end(), comp);
 }
 
 int TrackListComponent::rowToLibraryIndex (int rowNumber) const
 {
     if (rowNumber < 0) return -1;
-    if (visibleIndices.empty())
-        return rowNumber < library.getNumTracks() ? rowNumber : -1;
-    if (rowNumber < (int) visibleIndices.size())
-        return visibleIndices[(std::size_t) rowNumber];
+    if (rowNumber >= (int) displayedIndices.size()) return -1;
+    return displayedIndices[(std::size_t) rowNumber];
+}
+
+int TrackListComponent::libraryIndexToRow (int libraryIdx) const
+{
+    if (libraryIdx < 0) return -1;
+    for (int r = 0; r < (int) displayedIndices.size(); ++r)
+        if (displayedIndices[(std::size_t) r] == libraryIdx)
+            return r;
     return -1;
 }
 
 int TrackListComponent::getNumRows()
 {
-    return visibleIndices.empty() ? library.getNumTracks()
-                                  : (int) visibleIndices.size();
+    return (int) displayedIndices.size();
 }
 
 void TrackListComponent::paintRowBackground (juce::Graphics& g, int rowNumber,
@@ -173,7 +247,9 @@ void TrackListComponent::cellClicked (int rowNumber, int columnId,
 {
     if (e.mods.isPopupMenu())
     {
-        showTagPopupMenu (rowNumber);
+        const int idx = rowToLibraryIndex (rowNumber);
+        if (idx >= 0)
+            showTagPopupMenu (idx, e.getScreenPosition());
         return;
     }
 
@@ -185,18 +261,48 @@ void TrackListComponent::cellClicked (int rowNumber, int columnId,
     }
 }
 
+void TrackListComponent::cellDoubleClicked (int rowNumber, int /*columnId*/,
+                                             const juce::MouseEvent& /*e*/)
+{
+    const int idx = rowToLibraryIndex (rowNumber);
+    if (idx >= 0 && onPlayToggleRequested)
+        onPlayToggleRequested (idx);
+}
+
 void TrackListComponent::selectedRowsChanged (int lastRowSelected)
 {
     if (onTrackSelected)
         onTrackSelected (rowToLibraryIndex (lastRowSelected));
 }
 
-void TrackListComponent::showTagPopupMenu (int rowNumber)
+void TrackListComponent::sortOrderChanged (int newSortColumnId, bool isForwards)
 {
-    const int trackIdx = rowToLibraryIndex (rowNumber);
-    if (trackIdx < 0) return;
+    // Preserve selection by library index across the resort.
+    const int prevSelectedRow = table.getSelectedRow();
+    const int prevLibIdx      = rowToLibraryIndex (prevSelectedRow);
 
-    const auto& tf = library.getTrack (trackIdx);
+    sortColumn   = newSortColumnId;
+    sortForwards = isForwards;
+    rebuildDisplayedIndices();
+
+    table.updateContent();
+    table.repaint();
+
+    if (prevLibIdx >= 0)
+    {
+        const int newRow = libraryIndexToRow (prevLibIdx);
+        if (newRow >= 0)
+            table.selectRow (newRow);
+    }
+}
+
+void TrackListComponent::showTagPopupMenu (int trackIndex,
+                                           juce::Point<int> screenPos)
+{
+    if (trackIndex < 0 || trackIndex >= library.getNumTracks())
+        return;
+
+    const auto& tf = library.getTrack (trackIndex);
 
     juce::PopupMenu menu;
     menu.addSectionHeader ("Tag with...");
@@ -210,13 +316,18 @@ void TrackListComponent::showTagPopupMenu (int rowNumber)
                       /*isActive=*/ true, /*isTicked=*/ hasTag);
     }
 
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&table),
-                        [this, trackIdx] (int chosen)
+    auto options = juce::PopupMenu::Options()
+                       .withTargetScreenArea (juce::Rectangle<int> (screenPos.x,
+                                                                     screenPos.y,
+                                                                     1, 1));
+
+    menu.showMenuAsync (options,
+                        [this, trackIndex] (int chosen)
     {
         if (chosen <= 0) return;
         const auto& boardsCb = EmojiTagBoardComponent::getBoards();
         const int   boardIdx = chosen - 1;
         if (boardIdx < 0 || boardIdx >= (int) boardsCb.size()) return;
-        library.toggleEmojiTag (trackIdx, boardsCb[(std::size_t) boardIdx].emoji);
+        library.toggleEmojiTag (trackIndex, boardsCb[(std::size_t) boardIdx].emoji);
     });
 }

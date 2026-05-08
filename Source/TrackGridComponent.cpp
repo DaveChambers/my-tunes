@@ -282,11 +282,9 @@ void TrackGridComponent::mouseDown (const juce::MouseEvent& e)
     // Right-click / ctrl-click: emoji-tag popup. Mirrors List view.
     if (e.mods.isPopupMenu())
     {
-        // Also mark the card as selected so the popup is anchored
-        // visually consistent with the click target.
         selectedCardIndex = i;
         repaint();
-        showTagPopupMenu (libIdx);
+        showTagPopupMenu (libIdx, e.getScreenPosition());
         return;
     }
 
@@ -311,7 +309,22 @@ void TrackGridComponent::mouseDown (const juce::MouseEvent& e)
     if (onTrackSelected) onTrackSelected (libIdx);
 }
 
-void TrackGridComponent::showTagPopupMenu (int trackIndex)
+void TrackGridComponent::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    const int i = cardIndexAt (e.getPosition());
+    if (i < 0) return;
+
+    const int libIdx = visibleAt (i);
+    if (libIdx < 0) return;
+
+    selectedCardIndex = i;
+    repaint();
+    if (onTrackSelected)        onTrackSelected (libIdx);
+    if (onPlayToggleRequested)  onPlayToggleRequested (libIdx);
+}
+
+void TrackGridComponent::showTagPopupMenu (int trackIndex,
+                                            juce::Point<int> screenPos)
 {
     if (trackIndex < 0 || trackIndex >= library.getNumTracks())
         return;
@@ -330,7 +343,12 @@ void TrackGridComponent::showTagPopupMenu (int trackIndex)
                       /*isActive=*/ true, /*isTicked=*/ hasTag);
     }
 
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+    auto options = juce::PopupMenu::Options()
+                       .withTargetScreenArea (juce::Rectangle<int> (screenPos.x,
+                                                                     screenPos.y,
+                                                                     1, 1));
+
+    menu.showMenuAsync (options,
                         [this, trackIndex] (int chosen)
     {
         if (chosen <= 0) return;
