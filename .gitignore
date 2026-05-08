@@ -1,0 +1,39 @@
+# Build / CMake
+build/
+_deps/
+CMakeUserPresets.json
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.o
+*.a
+*.dylib
+*.so
+*.exe
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+.cache/
+
+# JUCE side-effects
+JuceLibraryCode/
+
+# App-private state and secrets — must NEVER be committed
+secrets.json
+.env
+.env.*
+*.token
+DISCOGS_USER_TOKEN
+
+# Local artwork cache / thumbnails — reproducible from Discogs, no need to track
+ArtworkCache/
+thumbs/
+
+# Mac packaging
+*.app/
+*.dmg
+*.pkg
