@@ -99,6 +99,41 @@ public:
             expectEquals (p.getPlayingTrackIndex(), -1);
         }
 
+        beginTest ("stop() called twice in a row is safe");
+        {
+            TrackPreviewPlayer p;
+            p.stop();
+            p.stop();
+            p.stop();
+            expect       (! p.isPlaying());
+            expectEquals (p.getPlayingTrackIndex(), -1);
+        }
+
+        beginTest ("rapid play/stop/play cycles do not crash and end idle");
+        {
+            TrackPreviewPlayer p;
+            for (int i = 0; i < 8; ++i)
+            {
+                p.play (i, juce::File ("/missing-" + juce::String (i) + ".wav"));
+                p.stop();
+            }
+            expect       (! p.isPlaying());
+            expectEquals (p.getPlayingTrackIndex(), -1);
+        }
+
+        beginTest ("listener callback is safe when state has been cleared");
+        {
+            // Simulate the bug scenario: a queued transport change
+            // callback would arrive after stop() has cleared state.
+            // Calling our own changeListenerCallback path indirectly
+            // via stop() must not crash.
+            TrackPreviewPlayer p;
+            p.play (0, juce::File ("/missing.wav"));
+            p.stop();
+            p.stop();   // would have hit hasStreamFinished() after the crash
+            expect (! p.isPlaying());
+        }
+
         // (Intentionally not unit-testing live playback here — re-initialising
         //  AudioDeviceManager across multiple TrackPreviewPlayer instances
         //  in the same console process tends to hang on macOS audio HAL

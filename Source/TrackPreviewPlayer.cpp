@@ -104,25 +104,48 @@ void TrackPreviewPlayer::stop()
     if (playingIndex < 0 && ! transport.isPlaying() && currentReaderSource == nullptr)
         return;
 
-    transport.stop();
-    transport.setSource (nullptr);
-    currentReaderSource.reset();
+    const int prevIndex = playingIndex;
+
+    // Clear our observable state FIRST. Any async change-listener
+    // callbacks queued by the transport mutations below will then see
+    // playingIndex < 0 and bail out before touching transport
+    // internals — which is the path that crashed in JUCE 8.0.4 when
+    // we accessed hasStreamFinished() after setSource(nullptr).
     playingIndex = -1;
     playingFile  = juce::File();
 
-    sendChangeMessage();
+    transport.stop();
+    transport.setSource (nullptr);
+    currentReaderSource.reset();
+
+    if (prevIndex >= 0)
+        sendChangeMessage();
 }
 
 void TrackPreviewPlayer::changeListenerCallback (juce::ChangeBroadcaster* src)
 {
-    if (src == &transport)
-    {
-        // End of file -> stop + broadcast so UI returns to idle.
-        if (transport.hasStreamFinished() && playingIndex >= 0)
-        {
-            stop();
-        }
-    }
+    if (src != &transport)
+        return;
+
+    // We've already torn down (either via our own stop(), or via
+    // play() switching to a different track that's already updated
+    // playingIndex). The queued transport callback doesn't tell us
+    // anything new, and probing transport accessors right after
+    // setSource(nullptr) hit the bug we're fixing.
+    if (playingIndex < 0)
+        return;
+
+    // Natural end-of-stream: transport stops on its own when EOF is
+    // reached on the audio thread.
+    //
+    // We deliberately do NOT call transport.hasStreamFinished() here.
+    // In JUCE 8.0.4 that accessor walks into transport-internal source
+    // state which is unsafe to touch on the heels of a setSource()
+    // change — Dave's stop-crash trace landed exactly there
+    // (EXC_BAD_ACCESS at 0x0, inside hasStreamFinished()).
+    // transport.isPlaying() reads a plain bool flag and is safe.
+    if (! transport.isPlaying())
+        stop();
 }
 
 juce::StringArray TrackPreviewPlayer::getSupportedFormatNames() const
