@@ -1,5 +1,6 @@
 #include "TrackGridComponent.h"
 
+#include "EmojiTagBoardComponent.h"
 #include "TrackFile.h"
 #include "TrackLibrary.h"
 #include "TrackPreviewPlayer.h"
@@ -250,40 +251,92 @@ void TrackGridComponent::paintCard (juce::Graphics& g, int libraryIndex,
     }
 }
 
-void TrackGridComponent::mouseDown (const juce::MouseEvent& e)
+int TrackGridComponent::cardIndexAt (juce::Point<int> p) const
 {
     const int n    = numVisible();
     const int cols = columnsFor (getWidth());
-    const auto p   = e.getPosition();
-
     for (int i = 0; i < n; ++i)
+        if (cardRect (i, kCardW, kCardH, cols).contains (p))
+            return i;
+    return -1;
+}
+
+void TrackGridComponent::mouseDown (const juce::MouseEvent& e)
+{
+    const auto p   = e.getPosition();
+    const int  i   = cardIndexAt (p);
+
+    if (i < 0)
     {
-        const auto rect = cardRect (i, kCardW, kCardH, cols);
-        if (! rect.contains (p))
-            continue;
-
-        // Reproduce paintCard's cover-area math so the play-button hit
-        // test matches what's drawn.
-        auto inner = rect.reduced (10);
-        const auto cover   = inner.removeFromTop (140);
-        const auto playRect = playHitRect (cover);
-
-        const int libIdx = visibleAt (i);
-        if (playRect.contains (p) && libIdx >= 0)
-        {
-            if (onPlayToggleRequested)
-                onPlayToggleRequested (libIdx);
-            return;
-        }
-
-        // Plain card click -> select
-        selectedCardIndex = i;
+        // Empty grid space: deselect, never invoke playback or popup.
+        selectedCardIndex = -1;
         repaint();
-        if (onTrackSelected) onTrackSelected (libIdx);
+        if (onTrackSelected) onTrackSelected (-1);
         return;
     }
 
-    selectedCardIndex = -1;
+    const int libIdx = visibleAt (i);
+    if (libIdx < 0)
+        return;
+
+    // Right-click / ctrl-click: emoji-tag popup. Mirrors List view.
+    if (e.mods.isPopupMenu())
+    {
+        // Also mark the card as selected so the popup is anchored
+        // visually consistent with the click target.
+        selectedCardIndex = i;
+        repaint();
+        showTagPopupMenu (libIdx);
+        return;
+    }
+
+    // Reproduce paintCard's cover-area math so the play-button hit
+    // test matches what's drawn.
+    const int  cols  = columnsFor (getWidth());
+    const auto rect  = cardRect (i, kCardW, kCardH, cols);
+    auto       inner = rect.reduced (10);
+    const auto cover = inner.removeFromTop (140);
+    const auto playRect = playHitRect (cover);
+
+    if (playRect.contains (p))
+    {
+        if (onPlayToggleRequested)
+            onPlayToggleRequested (libIdx);
+        return;
+    }
+
+    // Plain card click -> select
+    selectedCardIndex = i;
     repaint();
-    if (onTrackSelected) onTrackSelected (-1);
+    if (onTrackSelected) onTrackSelected (libIdx);
+}
+
+void TrackGridComponent::showTagPopupMenu (int trackIndex)
+{
+    if (trackIndex < 0 || trackIndex >= library.getNumTracks())
+        return;
+
+    const auto& tf = library.getTrack (trackIndex);
+
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("Tag with...");
+
+    const auto& boards = EmojiTagBoardComponent::getBoards();
+    for (int i = 0; i < (int) boards.size(); ++i)
+    {
+        const auto& b      = boards[(std::size_t) i];
+        const bool  hasTag = tf.emojiTags.contains (b.emoji);
+        menu.addItem (i + 1, b.emoji + "  " + b.label,
+                      /*isActive=*/ true, /*isTicked=*/ hasTag);
+    }
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+                        [this, trackIndex] (int chosen)
+    {
+        if (chosen <= 0) return;
+        const auto& boardsCb = EmojiTagBoardComponent::getBoards();
+        const int   boardIdx = chosen - 1;
+        if (boardIdx < 0 || boardIdx >= (int) boardsCb.size()) return;
+        library.toggleEmojiTag (trackIndex, boardsCb[(std::size_t) boardIdx].emoji);
+    });
 }

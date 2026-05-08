@@ -45,6 +45,8 @@ target_sources(MyTunes PRIVATE
     Source/LookupController.h
     Source/TrackPreviewPlayer.cpp
     Source/TrackPreviewPlayer.h
+    Source/MiniPlayerComponent.cpp
+    Source/MiniPlayerComponent.h
     Source/TrackListComponent.cpp
     Source/TrackListComponent.h
     Source/TrackGridComponent.cpp
@@ -89,6 +91,7 @@ target_sources(MyTunesTests PRIVATE
     Source/Tests/TrackFilenameParserTests.cpp
     Source/Tests/TrackLibraryTaggingTests.cpp
     Source/Tests/TrackPreviewPlayerTests.cpp
+    Source/Tests/TrackStorageTests.cpp
     Source/TrackFilenameParser.cpp
     Source/TrackFilenameParser.h
     Source/TrackFile.h
@@ -96,6 +99,8 @@ target_sources(MyTunesTests PRIVATE
     Source/TrackLibrary.h
     Source/TrackPreviewPlayer.cpp
     Source/TrackPreviewPlayer.h
+    Source/TrackStorage.cpp
+    Source/TrackStorage.h
 )
 
 target_compile_definitions(MyTunesTests PRIVATE

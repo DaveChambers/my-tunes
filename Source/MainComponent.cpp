@@ -57,6 +57,12 @@ MainComponent::MainComponent()
     previewPlayer.addChangeListener (this);
 
     addAndMakeVisible (detailView);
+    addAndMakeVisible (miniPlayer);
+
+    // Load any previously-persisted user metadata. Tracks are populated
+    // on scan; storage gives them their tags / priority / notes /
+    // Discogs metadata back.
+    storage.load();
 
     // ---- footer ------------------------------------------------------------
     addAndMakeVisible (attributionLabel);
@@ -132,11 +138,13 @@ void MainComponent::resized()
         }
         else
         {
-            // Window too narrow — stack: drop version label, show only attribution.
             attributionLabel.setBounds (footer);
             versionLabel.setBounds ({});
         }
     }
+
+    // Mini player strip (just above the footer)
+    miniPlayer.setBounds (bounds.removeFromBottom (44));
 
     // Top toolbar (44 tall)
     auto toolbar = bounds.removeFromTop (44).reduced (12, 6);
@@ -196,6 +204,11 @@ void MainComponent::onChooseFolderClicked()
             return;
 
         library.scanFolder (folder, kSampleSize);
+        // Re-apply any previously-saved tags / priority / notes / Discogs
+        // metadata to the freshly-scanned tracks before the lookup
+        // starts (so already-known matches don't get re-queried).
+        storage.applySavedFieldsToLibrary (library);
+        library.sendChangeMessage();
         scanButton.setEnabled (true);
 
         // Auto-fire Discogs lookup for the new sample. The user shouldn't
@@ -210,6 +223,8 @@ void MainComponent::runScan()
         return;
 
     library.scanFolder (library.getFolder(), kSampleSize);
+    storage.applySavedFieldsToLibrary (library);
+    library.sendChangeMessage();
     startAutoLookup();
 }
 
@@ -267,12 +282,16 @@ void MainComponent::onTrackLookupProcessed (int /*trackIndex*/,
 // Reactions to library changes
 // =============================================================================
 
-void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
+void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* src)
 {
-    // Library changes (scan / tags) and preview-player changes (play /
-    // stop) both come through here. Both want a status refresh; only
-    // library changes need to recompute filter / board counts. Cheap
-    // enough to do unconditionally.
+    // Library changes -> persist state. Player changes don't affect
+    // persisted data, so we only save on library changes. Saving 20
+    // tracks of JSON to ~/Library/Application Support takes
+    // sub-millisecond on a local SSD; doing it on every library
+    // broadcast (incl. each Discogs lookup result) is fine for v0.1.
+    if (src == &library)
+        storage.snapshotAndSave (library);
+
     recomputeVisibleIndices();
     recomputeBoardCounts();
     updateFolderLabel();

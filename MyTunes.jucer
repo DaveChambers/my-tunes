@@ -28,6 +28,8 @@
       <FILE id="myLcHh"  name="LookupController.h"       compile="0" resource="0" file="Source/LookupController.h"/>
       <FILE id="myPpCp"  name="TrackPreviewPlayer.cpp"   compile="1" resource="0" file="Source/TrackPreviewPlayer.cpp"/>
       <FILE id="myPpHh"  name="TrackPreviewPlayer.h"     compile="0" resource="0" file="Source/TrackPreviewPlayer.h"/>
+      <FILE id="myMpCp"  name="MiniPlayerComponent.cpp"  compile="1" resource="0" file="Source/MiniPlayerComponent.cpp"/>
+      <FILE id="myMpHh"  name="MiniPlayerComponent.h"    compile="0" resource="0" file="Source/MiniPlayerComponent.h"/>
       <FILE id="myTlcCp" name="TrackListComponent.cpp"   compile="1" resource="0" file="Source/TrackListComponent.cpp"/>
       <FILE id="myTlcHh" name="TrackListComponent.h"     compile="0" resource="0" file="Source/TrackListComponent.h"/>
       <FILE id="myTgcCp" name="TrackGridComponent.cpp"   compile="1" resource="0" file="Source/TrackGridComponent.cpp"/>

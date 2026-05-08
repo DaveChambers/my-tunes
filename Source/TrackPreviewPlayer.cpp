@@ -148,6 +148,32 @@ void TrackPreviewPlayer::changeListenerCallback (juce::ChangeBroadcaster* src)
         stop();
 }
 
+double TrackPreviewPlayer::getCurrentPositionSeconds() const
+{
+    if (playingIndex < 0 || currentReaderSource == nullptr)
+        return 0.0;
+    return transport.getCurrentPosition();
+}
+
+double TrackPreviewPlayer::getTotalLengthSeconds() const
+{
+    if (playingIndex < 0 || currentReaderSource == nullptr)
+        return 0.0;
+    return transport.getLengthInSeconds();
+}
+
+void TrackPreviewPlayer::setPositionSeconds (double seconds)
+{
+    if (playingIndex < 0 || currentReaderSource == nullptr)
+        return;
+
+    const double total = transport.getLengthInSeconds();
+    const double clamped = juce::jlimit (0.0,
+                                          total > 0.0 ? total : seconds,
+                                          seconds);
+    transport.setPosition (clamped);
+}
+
 juce::StringArray TrackPreviewPlayer::getSupportedFormatNames() const
 {
     juce::StringArray names;

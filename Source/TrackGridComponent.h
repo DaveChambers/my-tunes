@@ -23,6 +23,11 @@ public:
     void resized() override;
     void mouseDown (const juce::MouseEvent& e) override;
 
+    // Find which card index sits under the local-space point `p`, or
+    // -1 if none. Exposed so sister components / unit tests can ask
+    // about hit-testing without reimplementing the layout maths.
+    int  cardIndexAt (juce::Point<int> p) const;
+
     void refresh();
     void setVisibleTrackIndices (std::vector<int> indices);
 
@@ -39,6 +44,7 @@ private:
 
     void paintCard (juce::Graphics& g, int libraryIndex,
                     juce::Rectangle<int> bounds, bool selected, bool isPlayingThis) const;
+    void showTagPopupMenu (int trackIndex);
 
     TrackLibrary&       library;
     TrackPreviewPlayer& player;

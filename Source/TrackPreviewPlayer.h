@@ -45,6 +45,13 @@ public:
     juce::File    getPlayingFile()        const          { return playingFile;       }
     juce::String  getLastError()          const          { return lastError;         }
 
+    // Transport accessors. All three are safe when nothing is loaded
+    // (return 0.0). Bounds for setPosition are clamped to the loaded
+    // file's length.
+    double        getCurrentPositionSeconds() const;
+    double        getTotalLengthSeconds()     const;
+    void          setPositionSeconds (double seconds);
+
     // For unit tests / diagnostics.
     juce::StringArray getSupportedFormatNames() const;
 

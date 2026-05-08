@@ -9,18 +9,20 @@
 #include "DiscogsClient.h"
 #include "EmojiTagBoardComponent.h"
 #include "LookupController.h"
+#include "MiniPlayerComponent.h"
 #include "TrackDetailComponent.h"
 #include "TrackFile.h"
 #include "TrackGridComponent.h"
 #include "TrackLibrary.h"
 #include "TrackListComponent.h"
 #include "TrackPreviewPlayer.h"
+#include "TrackStorage.h"
 
 // Build label shown in the footer right so Dave can immediately tell
 // which app build he's running. Bump the suffix on every behaviour
 // change.
 #ifndef MYTUNES_BUILD_LABEL
- #define MYTUNES_BUILD_LABEL "v0.1 - audio preview"
+ #define MYTUNES_BUILD_LABEL "v0.1 - mini-player + persistence"
 #endif
 
 class MainComponent : public juce::Component,
@@ -43,6 +45,7 @@ private:
     ArtworkCache       artworkCache;
     LookupController   lookupController { library, discogsClient, artworkCache };
     TrackPreviewPlayer previewPlayer;
+    TrackStorage       storage;
 
     juce::TextButton chooseFolderButton  { "Choose Folder" };
     juce::TextButton scanButton          { "Scan" };
@@ -59,6 +62,7 @@ private:
     TrackListComponent     listView   { library, previewPlayer };
     TrackGridComponent     gridView   { library, previewPlayer };
     TrackDetailComponent   detailView { library, previewPlayer };
+    MiniPlayerComponent    miniPlayer { library, previewPlayer };
 
     ViewMode         viewMode           = ViewMode::List;
     int              activeBoardIndex   = -1;
