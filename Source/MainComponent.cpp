@@ -14,6 +14,10 @@ MainComponent::MainComponent()
     scanButton.onClick = [this] { runScan(); };
     scanButton.setEnabled (false);
 
+    addAndMakeVisible (lookupCoversButton);
+    lookupCoversButton.onClick = [this] { startLookup(); };
+    lookupCoversButton.setEnabled (false);
+
     addAndMakeVisible (viewListButton);
     viewListButton.setRadioGroupId (1);
     viewListButton.setClickingTogglesState (true);
@@ -39,7 +43,7 @@ MainComponent::MainComponent()
     emojiBoard.onBoardClicked = [this] (int boardIndex) { onBoardClicked (boardIndex); };
 
     addAndMakeVisible (listView);
-    addChildComponent  (gridView);   // hidden until toggled in
+    addChildComponent  (gridView);
     listView.onTrackSelected = [this] (int idx) { onTrackSelected (idx); };
     gridView.onTrackSelected = [this] (int idx) { onTrackSelected (idx); };
 
@@ -55,8 +59,25 @@ MainComponent::MainComponent()
     attributionLabel.setFont   (juce::Font (juce::FontOptions ("Helvetica", 11.0f, 0)));
     attributionLabel.setColour (juce::Label::textColourId, juce::Colours::lightgrey);
 
+    // ---- lookup wiring -----------------------------------------------------
+    lookupController.onProgress = [this] (int done, int total)
+    {
+        lookupDone  = done;
+        lookupTotal = total;
+        updateStatusLabel();
+    };
+    lookupController.onFinished = [this]
+    {
+        isLookingUp = false;
+        lookupDone  = 0;
+        lookupTotal = 0;
+        updateButtonsEnabled();
+        updateStatusLabel();
+    };
+
     updateFolderLabel();
     updateStatusLabel();
+    updateButtonsEnabled();
     recomputeBoardCounts();
 
     setSize (1200, 800);
@@ -81,21 +102,22 @@ void MainComponent::resized()
 
     // Toolbar
     auto toolbar = bounds.removeFromTop (44).reduced (12, 6);
-    chooseFolderButton.setBounds (toolbar.removeFromLeft (140));
+    chooseFolderButton.setBounds  (toolbar.removeFromLeft (140));
     toolbar.removeFromLeft (8);
-    scanButton.setBounds         (toolbar.removeFromLeft (90));
+    scanButton.setBounds          (toolbar.removeFromLeft (80));
+    toolbar.removeFromLeft (8);
+    lookupCoversButton.setBounds  (toolbar.removeFromLeft (130));
     toolbar.removeFromLeft (12);
 
-    statusLabel.setBounds        (toolbar.removeFromRight (240));
+    statusLabel.setBounds         (toolbar.removeFromRight (260));
     toolbar.removeFromRight (8);
 
-    // List/Grid toggle on the right of the toolbar
     auto toggleArea = toolbar.removeFromRight (130);
     viewGridButton.setBounds (toggleArea.removeFromRight (60));
     viewListButton.setBounds (toggleArea.removeFromRight (60));
     toolbar.removeFromRight (8);
 
-    folderLabel.setBounds        (toolbar);
+    folderLabel.setBounds         (toolbar);
 
     // Main area
     bounds.removeFromTop (4);
@@ -112,7 +134,7 @@ void MainComponent::resized()
 }
 
 // =============================================================================
-// Folder picking + scanning
+// Folder picking + scanning + lookup
 // =============================================================================
 
 void MainComponent::onChooseFolderClicked()
@@ -132,8 +154,6 @@ void MainComponent::onChooseFolderClicked()
             return;
 
         library.scanFolder (folder, kSampleSize);
-        // (library broadcasts on scan; our changeListenerCallback will refresh
-        //  visible indices, board counts, status, etc.)
         scanButton.setEnabled (true);
     });
 }
@@ -142,8 +162,38 @@ void MainComponent::runScan()
 {
     if (! library.getFolder().isDirectory())
         return;
-
     library.scanFolder (library.getFolder(), kSampleSize);
+}
+
+void MainComponent::startLookup()
+{
+    if (lookupController.isRunning() || library.getNumTracks() == 0)
+        return;
+
+    // Prefer the filtered/visible set if a filter is active so users can
+    // target a smaller subset; otherwise look up everything we have.
+    std::vector<int> indices;
+    if (activeBoardIndex >= 0 && ! visibleIndices.empty())
+    {
+        indices = visibleIndices;
+    }
+    else
+    {
+        const int n = library.getNumTracks();
+        indices.reserve ((std::size_t) n);
+        for (int i = 0; i < n; ++i)
+            indices.push_back (i);
+    }
+
+    if (indices.empty()) return;
+
+    isLookingUp = true;
+    lookupDone  = 0;
+    lookupTotal = (int) indices.size();
+    updateButtonsEnabled();
+    updateStatusLabel();
+
+    lookupController.startLookup (indices);
 }
 
 // =============================================================================
@@ -156,6 +206,7 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
     recomputeBoardCounts();
     updateFolderLabel();
     updateStatusLabel();
+    updateButtonsEnabled();
 }
 
 // =============================================================================
@@ -168,8 +219,6 @@ void MainComponent::setViewMode (ViewMode mode)
     listView.setVisible (mode == ViewMode::List);
     gridView.setVisible (mode == ViewMode::Grid);
 
-    // Sync the toggle buttons in case this came from anywhere other than
-    // the buttons themselves.
     viewListButton.setToggleState (mode == ViewMode::List, juce::dontSendNotification);
     viewGridButton.setToggleState (mode == ViewMode::Grid, juce::dontSendNotification);
 }
@@ -177,7 +226,7 @@ void MainComponent::setViewMode (ViewMode mode)
 void MainComponent::onBoardClicked (int boardIndex)
 {
     if (boardIndex == activeBoardIndex)
-        activeBoardIndex = -1;          // toggle off
+        activeBoardIndex = -1;
     else
         activeBoardIndex = boardIndex;
 
@@ -199,15 +248,9 @@ void MainComponent::onTrackSelected (int trackIndex)
 void MainComponent::recomputeVisibleIndices()
 {
     visibleIndices.clear();
-
     const int n = library.getNumTracks();
-    if (activeBoardIndex < 0)
-    {
-        // No filter: views fall back to "all tracks" if we hand them an
-        // empty vector — slightly more efficient and avoids redundant
-        // mapping work in the common case.
-    }
-    else
+
+    if (activeBoardIndex >= 0)
     {
         const auto& boards = EmojiTagBoardComponent::getBoards();
         const auto  emoji  = boards[(std::size_t) activeBoardIndex].emoji;
@@ -219,8 +262,6 @@ void MainComponent::recomputeVisibleIndices()
     listView.setVisibleTrackIndices (visibleIndices);
     gridView.setVisibleTrackIndices (visibleIndices);
 
-    // If the current detail selection vanished from the visible set
-    // because of the new filter, drop it.
     if (selectedTrackIndex >= 0 && activeBoardIndex >= 0)
     {
         const auto& boards = EmojiTagBoardComponent::getBoards();
@@ -253,7 +294,11 @@ void MainComponent::updateStatusLabel()
     text << "Sample mode: " << kSampleSize
          << "   |   "        << n << " loaded";
 
-    if (activeBoardIndex >= 0)
+    if (isLookingUp && lookupTotal > 0)
+    {
+        text << "   |   Looking up " << lookupDone << "/" << lookupTotal;
+    }
+    else if (activeBoardIndex >= 0)
     {
         const auto& boards = EmojiTagBoardComponent::getBoards();
         const auto& b      = boards[(std::size_t) activeBoardIndex];
@@ -262,6 +307,13 @@ void MainComponent::updateStatusLabel()
     }
 
     statusLabel.setText (text, juce::dontSendNotification);
+}
+
+void MainComponent::updateButtonsEnabled()
+{
+    const bool haveTracks = library.getNumTracks() > 0;
+    scanButton.setEnabled (library.getFolder().isDirectory());
+    lookupCoversButton.setEnabled (haveTracks && ! isLookingUp);
 }
 
 juce::File MainComponent::getDefaultStartFolder()

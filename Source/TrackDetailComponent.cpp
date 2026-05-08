@@ -75,6 +75,24 @@ void TrackDetailComponent::paint (juce::Graphics& g)
 
     const auto& tf = library.getTrack (selectedIndex);
 
+    // Cover art at the top, if we have one cached.
+    if (tf.cachedArtworkPath.existsAsFile())
+    {
+        const auto art = juce::ImageCache::getFromFile (tf.cachedArtworkPath);
+        if (art.isValid())
+        {
+            auto coverArea = bounds.removeFromTop (160);
+            g.setColour (juce::Colour (0xff14151a));
+            g.fillRoundedRectangle (coverArea.toFloat(), 4.0f);
+            g.drawImageWithin (art,
+                               coverArea.getX(), coverArea.getY(),
+                               coverArea.getWidth(), coverArea.getHeight(),
+                               juce::RectanglePlacement::centred,
+                               false);
+            bounds.removeFromTop (8);
+        }
+    }
+
     drawLabelValue (g, bounds, "Filename", tf.filename);
     drawLabelValue (g, bounds, "Artist",   tf.artist);
     drawLabelValue (g, bounds, "Title",    tf.title);

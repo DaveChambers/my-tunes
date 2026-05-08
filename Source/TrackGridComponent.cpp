@@ -124,9 +124,33 @@ void TrackGridComponent::paintCard (juce::Graphics& g, int libraryIndex,
     auto cover = inner.removeFromTop (140);
     g.setColour (juce::Colour (0xff14151a));
     g.fillRoundedRectangle (cover.toFloat(), 4.0f);
-    g.setColour (juce::Colours::lightgrey.withAlpha (0.5f));
-    g.setFont   (juce::Font (juce::FontOptions ("Helvetica", 11.0f, 0)));
-    g.drawText  ("(no cover yet)", cover, juce::Justification::centred);
+
+    juce::Image art;
+    if (tf.cachedArtworkPath.existsAsFile())
+        art = juce::ImageCache::getFromFile (tf.cachedArtworkPath);
+
+    if (art.isValid())
+    {
+        g.drawImageWithin (art,
+                           cover.getX(), cover.getY(),
+                           cover.getWidth(), cover.getHeight(),
+                           juce::RectanglePlacement::centred,
+                           false);
+    }
+    else
+    {
+        g.setColour (juce::Colours::lightgrey.withAlpha (0.5f));
+        g.setFont   (juce::Font (juce::FontOptions ("Helvetica", 11.0f, 0)));
+
+        const juce::String placeholder =
+            (tf.discogsStatus == TrackFile::DiscogsStatus::Searching)
+                ? "(searching…)"
+                : ((tf.discogsStatus == TrackFile::DiscogsStatus::NotFound
+                  || tf.discogsStatus == TrackFile::DiscogsStatus::Error)
+                       ? "(no cover)"
+                       : "(no cover yet)");
+        g.drawText (placeholder, cover, juce::Justification::centred);
+    }
 
     inner.removeFromTop (8);
 

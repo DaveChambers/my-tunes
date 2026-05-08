@@ -41,6 +41,8 @@ target_sources(MyTunes PRIVATE
     Source/DiscogsClient.h
     Source/ArtworkCache.cpp
     Source/ArtworkCache.h
+    Source/LookupController.cpp
+    Source/LookupController.h
     Source/TrackListComponent.cpp
     Source/TrackListComponent.h
     Source/TrackGridComponent.cpp

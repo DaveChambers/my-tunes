@@ -4,34 +4,50 @@
 
 #include "TrackFile.h"
 
-// Thin wrapper around the Discogs HTTP API. First version: stubbed.
+// Thin synchronous wrapper around the Discogs HTTP API.
 //
-// When implemented:
-//   - reads DISCOGS_USER_TOKEN from environment / local config (NEVER
-//     committed)
-//   - sets User-Agent: "MyTunes/0.1 +https://makeelectronicsound.com"
-//   - rate-limits requests (Discogs: 60/min unauth, 60/min auth on
-//     identity endpoints; we err on the cautious side)
-//   - prefers artist+title search; prefers results with cover images
-//   - updates TrackFile::discogsStatus / discogsCoverUrl / etc.
-//   - is opt-in: app must run without a token
+// Threading note: methods here BLOCK on HTTP. Callers must run them off
+// the message thread. LookupController owns the worker thread that
+// drives this for the 20-track sample.
+//
+// Auth:
+//   - DISCOGS_USER_TOKEN env var (never committed). If absent the
+//     client still works but is more aggressively rate-limited by
+//     Discogs.
+//
+// Per Discogs ToS the User-Agent identifies the app as
+//     MyTunes/0.1 +https://makeelectronicsound.com
 class DiscogsClient
 {
 public:
     DiscogsClient();
     ~DiscogsClient();
 
-    // Returns the token from $DISCOGS_USER_TOKEN if present, else empty.
     static juce::String getTokenFromEnvironment();
-
-    // Whether we have a usable auth token at construction time.
     bool hasToken() const noexcept { return token.isNotEmpty(); }
 
-    // Stubbed lookup. Sets `track.discogsStatus = NotSearched` until the
-    // real implementation lands.
-    void lookup (TrackFile& track);
+    // Fields the engine reads back from a search.
+    struct Result
+    {
+        TrackFile::DiscogsStatus status = TrackFile::DiscogsStatus::Error;
+        juce::String matchedArtist;     // mirrors the input artist
+        juce::String matchedTitle;      // Discogs combined "Artist - Album" string
+        juce::String releaseId;
+        juce::String resourceUrl;       // api.discogs.com/releases/<id>
+        juce::String coverUrl;          // larger image
+        juce::String thumbUrl;          // thumbnail (small)
+    };
+
+    // Synchronous search: returns the best-effort first result for
+    // (artist, title). May block for several seconds on a slow network.
+    Result lookup (const juce::String& artist, const juce::String& title);
+
+    // User-Agent string used on every outbound request. Exposed for
+    // ArtworkCache so the image download carries the same identifier.
+    static juce::String getUserAgent();
 
 private:
     juce::String token;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DiscogsClient)
 };
