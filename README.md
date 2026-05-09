@@ -1,6 +1,8 @@
-# My Tunes
+# TuneList
 
 A small macOS app for organising DJ tunes before gigs. Scans a folder of audio files, parses the filenames into Key / BPM / Artist / Title / Version, shows them in a list (and later a grid), lets you tag tracks onto emoji "boards" for quick recall, and (when a Discogs token is set) fetches cover art and metadata for the sampled tracks.
+
+> The repo is still called `my-tunes` and the bundle identifier is still `com.makeelectronicsound.mytunes` so that previously-saved user state under `~/Library/Application Support/My Tunes/` remains the canonical store across the rename. Only the user-visible app name (window title, .app bundle, menu bar) is "TuneList".
 
 This is **v0.1** — first version, deliberately simple. See **Current limitations** below for what's wired up and what's still scaffolded.
 
@@ -22,29 +24,29 @@ The first `cmake -S . -B build` clones JUCE 8.0.4 into `build/_deps/` and may ta
 The macOS app bundle is built at:
 
 ```
-build/MyTunes_artefacts/My Tunes.app
+build/TuneList_artefacts/TuneList.app
 ```
 
 Open it the usual way:
 
 ```bash
-open "build/MyTunes_artefacts/My Tunes.app"
+open "build/TuneList_artefacts/TuneList.app"
 ```
 
 Or double-click it in Finder.
 
 ## Opening in Projucer / Xcode
 
-A `MyTunes.jucer` Projucer file lives at the repo root. Either workflow is fine — they don't share build outputs and don't fight each other.
+A `TuneList.jucer` Projucer file lives at the repo root. Either workflow is fine — they don't share build outputs and don't fight each other.
 
 ```bash
-open MyTunes.jucer       # opens in Projucer
+open TuneList.jucer       # opens in Projucer
 ```
 
 In Projucer:
 1. Confirm the global JUCE Modules path is set (Projucer → Preferences → "Path to JUCE modules"); the .jucer expects an Xcode-side fallback at `../../JUCE/modules` if the global path isn't set.
 2. **Save Project and Open in IDE** — generates an Xcode project under `Builds/MacOSX/`.
-3. Build / run from Xcode as usual; the binary is the same `My Tunes.app` bundle (just under `Builds/MacOSX/build/Debug/` or `Release/` instead of `build/MyTunes_artefacts/`).
+3. Build / run from Xcode as usual; the binary is the same `TuneList.app` bundle (just under `Builds/MacOSX/build/Debug/` or `Release/` instead of `build/TuneList_artefacts/`).
 
 The CMake setup keeps working independently — use whichever you prefer.
 
@@ -53,7 +55,7 @@ The CMake setup keeps working independently — use whichever you prefer.
 A small console test runner is built alongside the app:
 
 ```bash
-./build/MyTunesTests_artefacts/MyTunesTests
+./build/TuneListTests_artefacts/TuneListTests
 ```
 
 Currently exercises the filename parser against the example filenames from Dave's tune folder plus a handful of edge cases (commas + internal hyphen in artist, parens-heavy titles, explicit `Foo - Larse Remix` versions, malformed inputs, supported-extensions sanity).
@@ -68,14 +70,14 @@ To set a token before launching the app:
 
 ```bash
 export DISCOGS_USER_TOKEN="your-token-here"
-open "build/MyTunes_artefacts/My Tunes.app"
+open "build/TuneList_artefacts/TuneList.app"
 ```
 
 Get a token at <https://www.discogs.com/settings/developers> → "Generate new token". **Never commit it.** The app reads it from the environment, never from a tracked file.
 
 The app sets the User-Agent
 ```
-MyTunes/0.1 +https://makeelectronicsound.com
+TuneList/0.1 +https://makeelectronicsound.com
 ```
 and paces requests at roughly 1.6/sec, well under Discogs' 60/min cap. The footer of the window shows the required attribution: *"Data provided by Discogs. This application uses Discogs' API but is not affiliated with, sponsored or endorsed by Discogs."*
 

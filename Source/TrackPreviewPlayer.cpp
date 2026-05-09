@@ -88,6 +88,20 @@ bool TrackPreviewPlayer::play (int libraryTrackIndex, const juce::File& file)
                          /*readerThread*/             nullptr,
                          /*sourceSampleRateToCorrectFor*/ reader->sampleRate);
 
+    // Belt-and-braces seek for the resume case. AudioTransportSource::
+    // setPosition uses the transport's internal sampleRate member, which
+    // is only finalised once the audio device's prepareToPlay has run.
+    // Seeking the AudioFormatReaderSource directly (in source samples)
+    // sidesteps that timing window and guarantees the resume position is
+    // honoured even on the very first start() after setSource. We then
+    // also call transport.setPosition (in seconds) as the public,
+    // resampler-aware seek so internal counters match.
+    if (startPositionSeconds > 0.0 && reader->sampleRate > 0.0)
+    {
+        const auto seekSamples = (juce::int64) (startPositionSeconds
+                                                * reader->sampleRate);
+        currentReaderSource->setNextReadPosition (seekSamples);
+    }
     transport.setPosition (startPositionSeconds);
     transport.start();
 

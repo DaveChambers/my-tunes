@@ -1,16 +1,17 @@
 # Assets
 
-Drop branding assets here. Currently expected:
+Branding assets used by the build:
 
-| File              | Purpose                                                                 |
-|-------------------|-------------------------------------------------------------------------|
-| `AppIcon.png`     | macOS bundle icon. PNG with alpha, ideally ≥ 512×512.                   |
+| File                | Purpose                                                                 |
+|---------------------|-------------------------------------------------------------------------|
+| `TuneListIcon.png`  | macOS bundle icon. PNG with alpha, ideally ≥ 512×512.                   |
 
-The CMake setup detects `Assets/AppIcon.png` automatically: present →
-JUCE bakes it into the .app bundle at configure time; absent → the
-build still works, just without a custom icon. After dropping the
+The CMake setup detects `Assets/TuneListIcon.png` automatically: present
+→ JUCE bakes it into `TuneList.app/Contents/Resources/Icon.icns` and
+wires `CFBundleIconFile` in Info.plist at configure time; absent → the
+build still works, just without a custom icon. After replacing the
 file, re-run `cmake -S . -B build && cmake --build build -j`.
 
-For Projucer/Xcode users: open `MyTunes.jucer` and set the *Icon
-(small)* / *Icon (large)* fields to the same `Assets/AppIcon.png`
-path, then "Save Project and Open in IDE".
+For Projucer/Xcode users: `TuneList.jucer` already references this
+file as a resource and points the *Icon (small)* / *Icon (large)*
+fields at it, so just "Save Project and Open in IDE".

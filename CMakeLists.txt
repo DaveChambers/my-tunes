@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(MyTunes VERSION 0.1.0 LANGUAGES C CXX OBJC OBJCXX)
+project(TuneList VERSION 0.1.0 LANGUAGES C CXX OBJC OBJCXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,27 +19,31 @@ FetchContent_MakeAvailable(JUCE)
 
 # --- macOS standalone app --------------------------------------------------
 
-# Pre-wire the macOS bundle icon. JUCE bakes ICON_BIG into the app's
-# Info.plist + Resources at configure time, so the file must exist
-# at configure time. We make this opt-in by file-presence: drop the
-# image at Assets/AppIcon.png (>= 512x512 PNG with alpha is ideal)
-# and reconfigure — JUCE picks it up automatically. With no file
-# the build still works, just without a custom bundle icon.
+# Bundle icon: JUCE bakes ICON_BIG into the app's Info.plist + Resources
+# at configure time (generates Icon.icns inside the .app), so the source
+# PNG must exist at configure time. The TuneList icon lives at
+# Assets/TuneListIcon.png; if for some reason it's missing we fall back
+# to building without a custom icon rather than failing configure.
+#
+# BUNDLE_ID is intentionally kept on the legacy "mytunes" reverse-DNS so
+# that previously-saved user state under
+#   ~/Library/Application Support/My Tunes/
+# remains the canonical store across the rename to TuneList.
 set(_app_icon_args "")
-set(_app_icon_path "${CMAKE_CURRENT_SOURCE_DIR}/Assets/AppIcon.png")
+set(_app_icon_path "${CMAKE_CURRENT_SOURCE_DIR}/Assets/TuneListIcon.png")
 if(EXISTS "${_app_icon_path}")
     list(APPEND _app_icon_args ICON_BIG "${_app_icon_path}")
 endif()
 
-juce_add_gui_app(MyTunes
+juce_add_gui_app(TuneList
     ${_app_icon_args}
-    PRODUCT_NAME    "My Tunes"
+    PRODUCT_NAME    "TuneList"
     BUNDLE_ID       "com.makeelectronicsound.mytunes"
     COMPANY_NAME    "Make Electronic Sound"
     COMPANY_WEBSITE "https://makeelectronicsound.com"
 )
 
-target_sources(MyTunes PRIVATE
+target_sources(TuneList PRIVATE
     Source/Main.cpp
     Source/MainComponent.cpp
     Source/MainComponent.h
@@ -70,7 +74,7 @@ target_sources(MyTunes PRIVATE
     Source/TrackDetailComponent.h
 )
 
-target_compile_definitions(MyTunes PRIVATE
+target_compile_definitions(TuneList PRIVATE
     JUCE_USE_CURL=0
     JUCE_WEB_BROWSER=0
     JUCE_STANDALONE_APPLICATION=1
@@ -79,7 +83,7 @@ target_compile_definitions(MyTunes PRIVATE
     MYTUNES_VERSION_STRING="${PROJECT_VERSION}"
 )
 
-target_link_libraries(MyTunes PRIVATE
+target_link_libraries(TuneList PRIVATE
     juce::juce_audio_basics
     juce::juce_audio_devices
     juce::juce_audio_formats
@@ -95,11 +99,11 @@ target_link_libraries(MyTunes PRIVATE
 
 # --- Console test runner ---------------------------------------------------
 
-juce_add_console_app(MyTunesTests
-    PRODUCT_NAME "MyTunesTests"
+juce_add_console_app(TuneListTests
+    PRODUCT_NAME "TuneListTests"
 )
 
-target_sources(MyTunesTests PRIVATE
+target_sources(TuneListTests PRIVATE
     Source/Tests/TestMain.cpp
     Source/Tests/TrackFilenameParserTests.cpp
     Source/Tests/TrackLibraryTaggingTests.cpp
@@ -116,7 +120,7 @@ target_sources(MyTunesTests PRIVATE
     Source/TrackStorage.h
 )
 
-target_compile_definitions(MyTunesTests PRIVATE
+target_compile_definitions(TuneListTests PRIVATE
     JUCE_USE_CURL=0
     JUCE_WEB_BROWSER=0
     JUCE_STANDALONE_APPLICATION=1
@@ -125,7 +129,7 @@ target_compile_definitions(MyTunesTests PRIVATE
     DONT_SET_USING_JUCE_NAMESPACE=1
 )
 
-target_link_libraries(MyTunesTests PRIVATE
+target_link_libraries(TuneListTests PRIVATE
     juce::juce_audio_basics
     juce::juce_audio_devices
     juce::juce_audio_formats
@@ -139,4 +143,4 @@ target_link_libraries(MyTunesTests PRIVATE
 )
 
 enable_testing()
-add_test(NAME MyTunesTests COMMAND MyTunesTests)
+add_test(NAME TuneListTests COMMAND TuneListTests)

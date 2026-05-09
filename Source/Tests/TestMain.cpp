@@ -21,7 +21,7 @@ int main (int /*argc*/, char** /*argv*/)
         }
     }
 
-    std::cout << "\n=== MyTunesTests summary: "
+    std::cout << "\n=== TuneListTests summary: "
               << totalPasses   << " passes, "
               << totalFailures << " failures ===\n";
 

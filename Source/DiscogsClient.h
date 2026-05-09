@@ -14,7 +14,7 @@
 // search is supported.
 //
 // Per Discogs ToS the User-Agent identifies the app as
-//     MyTunes/0.1 +https://makeelectronicsound.com
+//     TuneList/0.1 +https://makeelectronicsound.com
 class DiscogsClient
 {
 public:

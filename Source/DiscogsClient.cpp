@@ -30,7 +30,7 @@ DiscogsClient::~DiscogsClient() = default;
 
 juce::String DiscogsClient::getUserAgent()
 {
-    return "MyTunes/0.1 +https://makeelectronicsound.com";
+    return "TuneList/0.1 +https://makeelectronicsound.com";
 }
 
 juce::String DiscogsClient::getTokenFromEnvironment()

@@ -1,14 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<JUCERPROJECT id="MyTune1" name="My Tunes" projectType="guiapp"
+<JUCERPROJECT id="MyTune1" name="TuneList" projectType="guiapp"
               jucerFormatVersion="1" version="0.1.0"
               bundleIdentifier="com.makeelectronicsound.mytunes"
               companyName="Make Electronic Sound"
               companyWebsite="https://makeelectronicsound.com"
               cppLanguageStandard="17"
               displaySplashScreen="0"
-              userNotes="DJ tune-organising macOS app. Sample-of-20 mode. Discogs cover lookup is opt-in via DISCOGS_USER_TOKEN env var. CMake build still works alongside this Projucer file — pick whichever workflow you prefer.">
-  <MAINGROUP id="MTRoot" name="My Tunes">
+              bigIcon="tlIcon" smallIcon="tlIcon"
+              userNotes="DJ tune-organising macOS app. Sample-of-20 mode. Discogs cover lookup is opt-in via DISCOGS_USER_TOKEN env var. CMake build still works alongside this Projucer file — pick whichever workflow you prefer. Bundle ID kept as legacy 'mytunes' so user state under ~/Library/Application Support/My Tunes/ stays intact across the rename.">
+  <MAINGROUP id="MTRoot" name="TuneList">
+    <GROUP id="AssRoo" name="Assets">
+      <FILE id="tlIcon" name="TuneListIcon.png" compile="0" resource="1" file="Assets/TuneListIcon.png"/>
+    </GROUP>
     <GROUP id="SrcRoo" name="Source">
       <FILE id="myMain"  name="Main.cpp"                 compile="1" resource="0" file="Source/Main.cpp"/>
       <FILE id="myMcCp"  name="MainComponent.cpp"        compile="1" resource="0" file="Source/MainComponent.cpp"/>
@@ -58,10 +62,10 @@
   <EXPORTFORMATS>
     <XCODE_MAC targetFolder="Builds/MacOSX">
       <CONFIGURATIONS>
-        <CONFIGURATION name="Debug"   isDebug="1" optimisation="1" targetName="My Tunes"
+        <CONFIGURATION name="Debug"   isDebug="1" optimisation="1" targetName="TuneList"
                        osxCompatibility="10.13 SDK" macOSDeploymentTarget="10.13"/>
         <CONFIGURATION name="Release" isDebug="0" optimisation="3" linkTimeOptimisation="1"
-                       targetName="My Tunes"
+                       targetName="TuneList"
                        osxCompatibility="10.13 SDK" macOSDeploymentTarget="10.13"/>
       </CONFIGURATIONS>
       <MODULEPATHS>

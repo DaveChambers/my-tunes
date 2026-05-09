@@ -2,12 +2,12 @@
 
 #include "MainComponent.h"
 
-class MyTunesApp : public juce::JUCEApplication
+class TuneListApp : public juce::JUCEApplication
 {
 public:
-    MyTunesApp() = default;
+    TuneListApp() = default;
 
-    const juce::String getApplicationName() override        { return "My Tunes"; }
+    const juce::String getApplicationName() override        { return "TuneList"; }
     const juce::String getApplicationVersion() override     { return juce::String (MYTUNES_VERSION_STRING); }
     bool moreThanOneInstanceAllowed() override              { return false; }
 
@@ -58,4 +58,4 @@ private:
     std::unique_ptr<MainWindow> mainWindow;
 };
 
-START_JUCE_APPLICATION (MyTunesApp)
+START_JUCE_APPLICATION (TuneListApp)

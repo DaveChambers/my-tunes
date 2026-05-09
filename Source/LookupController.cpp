@@ -5,7 +5,7 @@
 LookupController::LookupController (TrackLibrary& l,
                                      DiscogsClient& d,
                                      ArtworkCache& a)
-    : juce::Thread ("MyTunes-Lookup"),
+    : juce::Thread ("TuneList-Lookup"),
       library (l), discogs (d), artwork (a)
 {
 }
