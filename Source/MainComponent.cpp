@@ -66,8 +66,11 @@ MainComponent::MainComponent()
 
     // ---- footer ------------------------------------------------------------
     addAndMakeVisible (attributionLabel);
+    // Plain ASCII only. Earlier builds used a curly U+2019 apostrophe
+    // ("Discogs’") which renders as "Discogsâ€™" on some Mac setups
+    // when the JUCE label paints under a non-UTF-8 font path.
     attributionLabel.setText ("Data provided by Discogs.   "
-                              "This application uses Discogs’ API but is not "
+                              "This application uses the Discogs API but is not "
                               "affiliated with, sponsored or endorsed by Discogs.",
                               juce::dontSendNotification);
     attributionLabel.setJustificationType (juce::Justification::centred);
@@ -143,8 +146,10 @@ void MainComponent::resized()
         }
     }
 
-    // Mini player strip (just above the footer)
-    miniPlayer.setBounds (bounds.removeFromBottom (44));
+    // Mini player strip (just above the footer). The strip is a
+    // two-row layout (scrub bar + centred transport button), so it
+    // needs more vertical room than the previous one-row version.
+    miniPlayer.setBounds (bounds.removeFromBottom (66));
 
     // Top toolbar (44 tall)
     auto toolbar = bounds.removeFromTop (44).reduced (12, 6);

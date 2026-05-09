@@ -49,7 +49,7 @@ namespace
 
         g.setColour (juce::Colours::white.withAlpha (0.95f));
         g.setFont   (juce::Font (juce::FontOptions ("Helvetica", 13.0f, 0)));
-        g.drawText  (value.isEmpty() ? juce::String ("—") : value,
+        g.drawText  (value.isEmpty() ? juce::String ("-") : value,
                      row,
                      juce::Justification::topLeft,
                      /*useEllipsesIfTooBig=*/ true);
@@ -117,7 +117,7 @@ void TrackDetailComponent::paint (juce::Graphics& g)
 
     drawLabelValue (g, bounds, "Priority",
                     tf.priority > 0 ? juce::String (tf.priority)
-                                    : juce::String ("(unset, 1–5)"));
+                                    : juce::String ("(unset, 1-5)"));
 
     drawLabelValue (g, bounds, "Notes",
                     tf.notes.isEmpty() ? juce::String ("(empty)") : tf.notes);
@@ -129,7 +129,7 @@ void TrackDetailComponent::paint (juce::Graphics& g)
     {
         if (tf.discogsArtist.isNotEmpty() || tf.discogsTitle.isNotEmpty())
             drawLabelValue (g, bounds, "Matched",
-                            tf.discogsArtist + " - " + tf.discogsTitle);
+                            tf.discogsArtist + "  |  " + tf.discogsTitle);
         if (tf.discogsReleaseId.isNotEmpty())
             drawLabelValue (g, bounds, "Release ID", tf.discogsReleaseId);
     }

@@ -193,7 +193,7 @@ void TrackGridComponent::paintCard (juce::Graphics& g, int libraryIndex,
         g.setFont   (juce::Font (juce::FontOptions ("Helvetica", 11.0f, 0)));
         const juce::String placeholder =
             (tf.discogsStatus == TrackFile::DiscogsStatus::Searching)
-                ? "(searching…)"
+                ? "(searching...)"
                 : ((tf.discogsStatus == TrackFile::DiscogsStatus::NotFound
                   || tf.discogsStatus == TrackFile::DiscogsStatus::Error)
                        ? "(no cover)"
@@ -226,7 +226,7 @@ void TrackGridComponent::paintCard (juce::Graphics& g, int libraryIndex,
         if (tf.key.isNotEmpty()) keyBpm << tf.key;
         if (tf.bpm > 0)
         {
-            if (keyBpm.isNotEmpty()) keyBpm << " · ";
+            if (keyBpm.isNotEmpty()) keyBpm << "  |  ";
             keyBpm << juce::String (tf.bpm) << " BPM";
         }
         g.setColour (juce::Colours::lightgrey);
