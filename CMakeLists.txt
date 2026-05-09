@@ -19,7 +19,20 @@ FetchContent_MakeAvailable(JUCE)
 
 # --- macOS standalone app --------------------------------------------------
 
+# Pre-wire the macOS bundle icon. JUCE bakes ICON_BIG into the app's
+# Info.plist + Resources at configure time, so the file must exist
+# at configure time. We make this opt-in by file-presence: drop the
+# image at Assets/AppIcon.png (>= 512x512 PNG with alpha is ideal)
+# and reconfigure — JUCE picks it up automatically. With no file
+# the build still works, just without a custom bundle icon.
+set(_app_icon_args "")
+set(_app_icon_path "${CMAKE_CURRENT_SOURCE_DIR}/Assets/AppIcon.png")
+if(EXISTS "${_app_icon_path}")
+    list(APPEND _app_icon_args ICON_BIG "${_app_icon_path}")
+endif()
+
 juce_add_gui_app(MyTunes
+    ${_app_icon_args}
     PRODUCT_NAME    "My Tunes"
     BUNDLE_ID       "com.makeelectronicsound.mytunes"
     COMPANY_NAME    "Make Electronic Sound"

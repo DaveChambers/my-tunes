@@ -52,12 +52,23 @@ bool TrackPreviewPlayer::play (int libraryTrackIndex, const juce::File& file)
         return false;
     }
 
+    // Decide where to start: resume the saved paused position when the
+    // track being played matches the one we paused; otherwise from 0.
+    double startPositionSeconds = 0.0;
+    if (pausedTrackIndex == libraryTrackIndex
+        && pausedTrackFile == file
+        && pausedPositionSeconds > 0.0)
+    {
+        startPositionSeconds = pausedPositionSeconds;
+    }
+
+    // Either we're consuming the resume position, or the user picked a
+    // different track and the saved state is now stale — clear in both
+    // cases so the next manual stop captures fresh state.
+    clearPausedPosition();
+
     // Tear down whatever was playing.
-    transport.stop();
-    transport.setSource (nullptr);
-    currentReaderSource.reset();
-    playingIndex = -1;
-    playingFile  = juce::File();
+    teardownInternal();
 
     auto* reader = formatManager.createReaderFor (file);
     if (reader == nullptr)
@@ -70,26 +81,14 @@ bool TrackPreviewPlayer::play (int libraryTrackIndex, const juce::File& file)
     currentReaderSource = std::make_unique<juce::AudioFormatReaderSource> (
                               reader, /*deleteReaderWhenThisIsDeleted*/ true);
 
-    // CRITICAL: in JUCE 8 (incl. 8.0.4) AudioTransportSource::setSource
-    // takes (source, readAheadBufferSize, readerThread, ...). If
-    // readAheadBufferSize > 0 it constructs an internal
-    // BufferingAudioSource using `*readerThread` — passing a null
-    // thread there dereferences null and crashes the message thread on
-    // the next setNextReadPosition()/start() (we hit this exactly:
-    // pthread_mutex_lock on 0x218 inside TimeSliceThread::moveToFrontOfQueue).
-    //
-    // Disable read-ahead buffering by passing 0 here. For 20 short
-    // local files this is fine — the audio thread reads directly from
-    // the AudioFormatReaderSource. If we later want pre-buffering,
-    // TrackPreviewPlayer must own a long-lived juce::TimeSliceThread
-    // member, started in the ctor and stopped in the dtor, and pass
-    // its address here.
+    // See the inline note in the previous fix: read-ahead buffering
+    // with a null thread crashes JUCE 8.0.4. Use buffer-size 0.
     transport.setSource (currentReaderSource.get(),
                          /*readAheadBufferSize*/      0,
                          /*readerThread*/             nullptr,
                          /*sourceSampleRateToCorrectFor*/ reader->sampleRate);
 
-    transport.setPosition (0.0);
+    transport.setPosition (startPositionSeconds);
     transport.start();
 
     playingIndex = libraryTrackIndex;
@@ -99,27 +98,74 @@ bool TrackPreviewPlayer::play (int libraryTrackIndex, const juce::File& file)
     return true;
 }
 
+bool TrackPreviewPlayer::resumeFromPause()
+{
+    if (pausedTrackIndex < 0 || pausedTrackFile == juce::File())
+        return false;
+    return play (pausedTrackIndex, pausedTrackFile);
+}
+
 void TrackPreviewPlayer::stop()
 {
     if (playingIndex < 0 && ! transport.isPlaying() && currentReaderSource == nullptr)
         return;
 
-    const int prevIndex = playingIndex;
+    // Capture the paused position BEFORE tearing down so we can read
+    // transport.getCurrentPosition() while the transport still has a
+    // valid source.
+    capturePausedPosition();
 
-    // Clear our observable state FIRST. Any async change-listener
-    // callbacks queued by the transport mutations below will then see
-    // playingIndex < 0 and bail out before touching transport
-    // internals — which is the path that crashed in JUCE 8.0.4 when
-    // we accessed hasStreamFinished() after setSource(nullptr).
+    const int prevIndex = playingIndex;
+    teardownInternal();
+
+    if (prevIndex >= 0)
+        sendChangeMessage();
+}
+
+void TrackPreviewPlayer::capturePausedPosition()
+{
+    if (playingIndex < 0 || currentReaderSource == nullptr)
+        return;
+
+    const double pos   = transport.getCurrentPosition();
+    const double total = transport.getLengthInSeconds();
+
+    // If we're effectively at the end (within 0.5 s) treat this as a
+    // completed playback rather than a pause — next play of the same
+    // track should start from 0, not from "the last sample".
+    if (total > 0.0 && pos >= total - 0.5)
+    {
+        clearPausedPosition();
+        return;
+    }
+
+    pausedTrackIndex         = playingIndex;
+    pausedTrackFile          = playingFile;
+    pausedPositionSeconds    = juce::jmax (0.0, pos);
+    pausedTotalLengthSeconds = juce::jmax (0.0, total);
+}
+
+void TrackPreviewPlayer::clearPausedPosition()
+{
+    pausedTrackIndex         = -1;
+    pausedTrackFile          = juce::File();
+    pausedPositionSeconds    = 0.0;
+    pausedTotalLengthSeconds = 0.0;
+}
+
+void TrackPreviewPlayer::teardownInternal()
+{
+    // Clear observable state FIRST so any async change-listener
+    // callbacks queued by the transport mutations below see
+    // playingIndex < 0 and bail before touching transport internals
+    // (this is the JUCE 8.0.4 hasStreamFinished() crash path we
+    // already fixed; preserving the same ordering here).
     playingIndex = -1;
     playingFile  = juce::File();
 
     transport.stop();
     transport.setSource (nullptr);
     currentReaderSource.reset();
-
-    if (prevIndex >= 0)
-        sendChangeMessage();
 }
 
 void TrackPreviewPlayer::changeListenerCallback (juce::ChangeBroadcaster* src)
@@ -127,25 +173,18 @@ void TrackPreviewPlayer::changeListenerCallback (juce::ChangeBroadcaster* src)
     if (src != &transport)
         return;
 
-    // We've already torn down (either via our own stop(), or via
-    // play() switching to a different track that's already updated
-    // playingIndex). The queued transport callback doesn't tell us
-    // anything new, and probing transport accessors right after
-    // setSource(nullptr) hit the bug we're fixing.
     if (playingIndex < 0)
         return;
 
-    // Natural end-of-stream: transport stops on its own when EOF is
-    // reached on the audio thread.
-    //
-    // We deliberately do NOT call transport.hasStreamFinished() here.
-    // In JUCE 8.0.4 that accessor walks into transport-internal source
-    // state which is unsafe to touch on the heels of a setSource()
-    // change — Dave's stop-crash trace landed exactly there
-    // (EXC_BAD_ACCESS at 0x0, inside hasStreamFinished()).
-    // transport.isPlaying() reads a plain bool flag and is safe.
     if (! transport.isPlaying())
-        stop();
+    {
+        // Natural end-of-stream. The track ran out on its own — clear
+        // the paused position so the next play() of this track starts
+        // from 0, then tear down.
+        clearPausedPosition();
+        teardownInternal();
+        sendChangeMessage();
+    }
 }
 
 double TrackPreviewPlayer::getCurrentPositionSeconds() const

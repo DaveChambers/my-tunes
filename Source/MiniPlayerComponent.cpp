@@ -168,24 +168,43 @@ void MiniPlayerComponent::timerCallback()
 
 void MiniPlayerComponent::onTransportButton()
 {
-    // The button is a one-way Stop while a track is playing. It's
-    // disabled when no track is loaded — clicking it then is a no-op.
+    // Click while playing -> pause (TrackPreviewPlayer::stop captures
+    // the current position into the paused slot).
+    // Click while paused  -> resume from the saved position.
+    // Click while fully idle -> no-op (button is disabled in that case
+    // by refreshFromPlayer).
     if (player.isPlaying())
         player.stop();
+    else if (player.hasPausedTrack())
+        player.resumeFromPause();
 }
 
 void MiniPlayerComponent::refreshFromPlayer()
 {
     const bool playing = player.isPlaying();
+    const bool paused  = ! playing && player.hasPausedTrack();
+
+    // Button: square while playing (acts as pause), triangle while
+    // paused (acts as resume). Disabled only when fully idle.
     transportButton.setShowingStop (playing);
-    transportButton.setEnabled (playing);
-    positionSlider.setEnabled  (playing);
+    transportButton.setEnabled (playing || paused);
+    positionSlider.setEnabled  (playing || paused);
 
     if (playing)
     {
         const double total = player.getTotalLengthSeconds();
         positionSlider.setRange (0.0, total > 0.0 ? total : 1.0, 0.0);
         const double pos   = player.getCurrentPositionSeconds();
+        if (! userIsDragging)
+            positionSlider.setValue (pos, juce::dontSendNotification);
+        elapsedLabel  .setText (formatTime (pos),   juce::dontSendNotification);
+        remainingLabel.setText (formatTime (total), juce::dontSendNotification);
+    }
+    else if (paused)
+    {
+        const double total = player.getPausedLengthSeconds();
+        const double pos   = player.getPausedPositionSeconds();
+        positionSlider.setRange (0.0, total > 0.0 ? total : 1.0, 0.0);
         if (! userIsDragging)
             positionSlider.setValue (pos, juce::dontSendNotification);
         elapsedLabel  .setText (formatTime (pos),   juce::dontSendNotification);
