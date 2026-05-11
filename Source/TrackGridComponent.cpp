@@ -200,10 +200,33 @@ private:
 
         const auto& tf = owner.library.getTrack (libraryIndex);
 
-        g.setColour (selected ? juce::Colour (0xff3a4156) : juce::Colour (0xff262830));
+        // Inverted card palette for the currently-playing track. Light
+        // background + dark text + bright accent border so it's
+        // unmistakable at a glance among the dark default cards. The
+        // cover artwork frame stays dark so the image itself still
+        // reads correctly.
+        const juce::Colour playingBg     (0xfff4f6fb);
+        const juce::Colour playingText   (0xff14151a);
+        const juce::Colour playingMuted  (0xff5a6072);
+        const juce::Colour playingAccent (0xff3a82ff);
+
+        // Card background.
+        if (isPlayingThis)
+            g.setColour (playingBg);
+        else
+            g.setColour (selected ? juce::Colour (0xff3a4156)
+                                   : juce::Colour (0xff262830));
         g.fillRoundedRectangle (bounds.toFloat(), 8.0f);
 
-        if (selected)
+        // Border. The playing border is thicker + brighter than the
+        // existing selection border so playing always wins visually
+        // even when the card is also the selected one.
+        if (isPlayingThis)
+        {
+            g.setColour (playingAccent);
+            g.drawRoundedRectangle (bounds.toFloat().reduced (1.5f), 8.0f, 3.0f);
+        }
+        else if (selected)
         {
             g.setColour (juce::Colour (0xff7d8db8));
             g.drawRoundedRectangle (bounds.toFloat().reduced (1.0f), 8.0f, 1.5f);
@@ -212,6 +235,8 @@ private:
         auto inner = bounds.reduced (10);
 
         // ---- cover area + transport overlay ----------------------------
+        // Cover frame stays dark in both states so the artwork doesn't
+        // look washed out on the inverted card.
         auto cover = inner.removeFromTop (140);
         g.setColour (juce::Colour (0xff14151a));
         g.fillRoundedRectangle (cover.toFloat(), 4.0f);
@@ -246,13 +271,16 @@ private:
 
         inner.removeFromTop (8);
 
-        g.setColour (juce::Colours::white);
+        // Artist (bold).
+        g.setColour (isPlayingThis ? playingText : juce::Colours::white);
         g.setFont   (juce::Font (juce::FontOptions ("Helvetica", 12.0f, juce::Font::bold)));
         g.drawText  (tf.artist,
                      inner.removeFromTop (16),
                      juce::Justification::centredLeft, true);
 
-        g.setColour (juce::Colours::white.withAlpha (0.85f));
+        // Title.
+        g.setColour (isPlayingThis ? playingText
+                                    : juce::Colours::white.withAlpha (0.85f));
         g.setFont   (juce::Font (juce::FontOptions ("Helvetica", 12.0f, 0)));
         g.drawText  (tf.title.isNotEmpty() ? tf.title : tf.filename,
                      inner.removeFromTop (16),
@@ -270,7 +298,7 @@ private:
                 if (keyBpm.isNotEmpty()) keyBpm << "  |  ";
                 keyBpm << juce::String (tf.bpm) << " BPM";
             }
-            g.setColour (juce::Colours::lightgrey);
+            g.setColour (isPlayingThis ? playingMuted : juce::Colours::lightgrey);
             g.setFont   (juce::Font (juce::FontOptions ("Helvetica", 10.5f, 0)));
             g.drawText  (keyBpm,
                          row.removeFromLeft (row.getWidth() / 2),
@@ -286,7 +314,8 @@ private:
             else
                 sourceText = TrackFile::spotifyStatusText (tf.spotifyStatus);
 
-            g.setColour (juce::Colours::lightgrey.withAlpha (0.7f));
+            g.setColour (isPlayingThis ? playingMuted
+                                        : juce::Colours::lightgrey.withAlpha (0.7f));
             g.drawText  (sourceText,
                          row,
                          juce::Justification::centredRight);
@@ -294,7 +323,10 @@ private:
 
         if (! tf.emojiTags.isEmpty())
         {
-            g.setColour (juce::Colours::white);
+            // Emoji glyphs render fine against either palette — we
+            // only need to set a sensible base colour so any text
+            // fallback is visible.
+            g.setColour (isPlayingThis ? playingText : juce::Colours::white);
             g.setFont   (juce::Font (juce::FontOptions ("Helvetica", 14.0f, 0)));
             g.drawText  (tf.emojiTags.joinIntoString (" "),
                          inner.removeFromTop (18),

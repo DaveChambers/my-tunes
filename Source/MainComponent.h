@@ -21,7 +21,7 @@
 // which app build he's running. Bump the suffix on every behaviour
 // change.
 #ifndef MYTUNES_BUILD_LABEL
- #define MYTUNES_BUILD_LABEL "v0.1 - reject wrong-artwork matches"
+ #define MYTUNES_BUILD_LABEL "v0.1 - grid highlight playing card"
 #endif
 
 class MainComponent : public juce::Component,
