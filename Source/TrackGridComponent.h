@@ -3,6 +3,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <functional>
+#include <memory>
 #include <vector>
 
 class TrackLibrary;
@@ -11,7 +12,14 @@ class TrackPreviewPlayer;
 // Tile/card grid of tracks. Cards show:
 //   - cover area (cached thumbnail or placeholder)
 //   - centred play / stop overlay (click toggles preview playback)
-//   - artist, title, key + BPM, Discogs status, emoji tags
+//   - artist, title, key + BPM, Discogs/Spotify status, emoji tags
+//
+// The grid lives inside a juce::Viewport so any number of rows can be
+// scrolled — without a viewport, the bottom rows fall behind the
+// mini-player / footer strip and become unclickable. The inner
+// CardsView holds the painting + mouse logic; this outer class is a
+// thin host that wires the viewport, owns the visible-index state,
+// and exposes the public API to MainComponent.
 class TrackGridComponent : public juce::Component,
                             private juce::ChangeListener
 {
@@ -19,15 +27,7 @@ public:
     TrackGridComponent (TrackLibrary& library, TrackPreviewPlayer& player);
     ~TrackGridComponent() override;
 
-    void paint (juce::Graphics&) override;
     void resized() override;
-    void mouseDown        (const juce::MouseEvent& e) override;
-    void mouseDoubleClick (const juce::MouseEvent& e) override;
-
-    // Find which card index sits under the local-space point `p`, or
-    // -1 if none. Exposed so sister components / unit tests can ask
-    // about hit-testing without reimplementing the layout maths.
-    int  cardIndexAt (juce::Point<int> p) const;
 
     void refresh();
     void setVisibleTrackIndices (std::vector<int> indices);
@@ -38,19 +38,17 @@ public:
 private:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
+    class CardsView;
+
     int  numVisible() const;
-    int  visibleAt (int n) const;
-    juce::Rectangle<int> cardRect    (int cardIndex, int cardW, int cardH, int cols) const;
-    juce::Rectangle<int> playHitRect (juce::Rectangle<int> coverArea) const;
+    int  visibleAt  (int n) const;
 
-    void paintCard (juce::Graphics& g, int libraryIndex,
-                    juce::Rectangle<int> bounds, bool selected, bool isPlayingThis) const;
-    void showTagPopupMenu (int trackIndex, juce::Point<int> screenPos);
+    TrackLibrary&                library;
+    TrackPreviewPlayer&          player;
+    std::vector<int>             visibleIndices;
 
-    TrackLibrary&       library;
-    TrackPreviewPlayer& player;
-    std::vector<int>    visibleIndices;
-    int                 selectedCardIndex = -1;
+    juce::Viewport               viewport;
+    std::unique_ptr<CardsView>   cards;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TrackGridComponent)
 };

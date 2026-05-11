@@ -24,7 +24,7 @@
 // which app build he's running. Bump the suffix on every behaviour
 // change.
 #ifndef MYTUNES_BUILD_LABEL
- #define MYTUNES_BUILD_LABEL "v0.1 - stop/play resumes from position"
+ #define MYTUNES_BUILD_LABEL "v0.1 - scrollable grid"
 #endif
 
 class MainComponent : public juce::Component,
