@@ -2,6 +2,20 @@
 
 MainComponent::MainComponent()
 {
+    // Log resolved data paths on every launch so Dave can paste them
+    // into a terminal to inspect or wipe the cache without having to
+    // guess where JUCE's userApplicationDataDirectory actually maps to.
+    // (On macOS it's ~/Library, NOT ~/Library/Application Support —
+    //  so the library + artwork cache live under ~/Library/My Tunes/
+    //  even though that breaks Apple's convention. Renaming requires
+    //  a one-shot migration; see the README note.)
+    juce::Logger::writeToLog (
+        "TuneList: library JSON = "
+        + TrackStorage::getLibraryFile().getFullPathName());
+    juce::Logger::writeToLog (
+        "TuneList: artwork cache = "
+        + ArtworkCache::getCacheFolder().getFullPathName());
+
     library.addChangeListener (this);
 
     // ---- toolbar -----------------------------------------------------------
