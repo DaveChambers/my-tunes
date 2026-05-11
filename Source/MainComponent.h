@@ -6,25 +6,22 @@
 #include <vector>
 
 #include "ArtworkCache.h"
-#include "DiscogsClient.h"
 #include "EmojiTagBoardComponent.h"
 #include "LookupController.h"
+#include "MetadataProxyClient.h"
 #include "MiniPlayerComponent.h"
-#include "SpotifyClient.h"
 #include "TrackDetailComponent.h"
-#include "TrackFile.h"
 #include "TrackGridComponent.h"
 #include "TrackLibrary.h"
 #include "TrackListComponent.h"
 #include "TrackPreviewPlayer.h"
 #include "TrackStorage.h"
-#include "TuneListConfig.h"
 
 // Build label shown in the footer right so Dave can immediately tell
 // which app build he's running. Bump the suffix on every behaviour
 // change.
 #ifndef MYTUNES_BUILD_LABEL
- #define MYTUNES_BUILD_LABEL "v0.1 - scrollable grid"
+ #define MYTUNES_BUILD_LABEL "v0.1 - artwork via metadata service"
 #endif
 
 class MainComponent : public juce::Component,
@@ -42,17 +39,12 @@ private:
 
     // Member ordering matters for clean shutdown:
     // controller is destroyed before library + the helpers it depends on.
-    // `config` is the single point of truth for credentials and must be
-    // constructed before the clients that take its values.
-    TuneListConfig     config;
-    TrackLibrary       library;
-    SpotifyClient      spotifyClient { config.getSpotifyClientId(),
-                                       config.getSpotifyClientSecret() };
-    DiscogsClient      discogsClient { config.getDiscogsUserToken() };
-    ArtworkCache       artworkCache;
-    LookupController   lookupController { library, spotifyClient, discogsClient, artworkCache };
-    TrackPreviewPlayer previewPlayer;
-    TrackStorage       storage;
+    TrackLibrary        library;
+    MetadataProxyClient metadataClient;
+    ArtworkCache        artworkCache;
+    LookupController    lookupController { library, metadataClient, artworkCache };
+    TrackPreviewPlayer  previewPlayer;
+    TrackStorage        storage;
 
     juce::TextButton chooseFolderButton  { "Choose Folder" };
     juce::TextButton scanButton          { "Scan" };
@@ -77,19 +69,18 @@ private:
     int              selectedTrackIndex = -1;
 
     // Artwork lookup state, all maintained on the message thread.
-    // Counters reflect the FINAL artwork source chosen per track —
-    // Spotify-first with Discogs fallback — so they answer the question
-    // "where did Dave's covers actually come from this batch".
-    bool             isLookingUp       = false;
-    int              lookupDone        = 0;
-    int              lookupTotal       = 0;
-    int              countSpotifyArt   = 0;   // artworkSource == Spotify
-    int              countDiscogsArt   = 0;   // artworkSource == Discogs
-    int              countNoArtwork    = 0;   // artworkSource == None
-    int              countSpotifyError = 0;
-    int              countDiscogsError = 0;
-    juce::String     lastSpotifyError;
-    juce::String     lastDiscogsError;
+    // Counters reflect the FINAL artwork source chosen per track,
+    // as decided by the TuneList metadata service. The Spotify-first /
+    // Discogs-fallback policy lives in the proxy itself; the app
+    // only records what the proxy returned.
+    bool             isLookingUp     = false;
+    int              lookupDone      = 0;
+    int              lookupTotal     = 0;
+    int              countSpotifyArt = 0;
+    int              countDiscogsArt = 0;
+    int              countNoArtwork  = 0;
+    int              countLookupError = 0;
+    juce::String     lastLookupError;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
 

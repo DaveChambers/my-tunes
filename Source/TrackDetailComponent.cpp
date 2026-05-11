@@ -11,8 +11,10 @@ TrackDetailComponent::TrackDetailComponent (TrackLibrary& l, TrackPreviewPlayer&
     player .addChangeListener (this);
 
     addChildComponent (openSpotifyButton);
+    addChildComponent (openDiscogsButton);
     openSpotifyButton.onClick = [this] { onOpenSpotifyClicked(); };
-    refreshOpenSpotifyButton();
+    openDiscogsButton.onClick = [this] { onOpenDiscogsClicked(); };
+    refreshExternalLinkButtons();
 }
 
 TrackDetailComponent::~TrackDetailComponent()
@@ -23,24 +25,34 @@ TrackDetailComponent::~TrackDetailComponent()
 
 void TrackDetailComponent::changeListenerCallback (juce::ChangeBroadcaster*)
 {
-    refreshOpenSpotifyButton();
+    refreshExternalLinkButtons();
     repaint();
 }
 
 void TrackDetailComponent::resized()
 {
-    // Button sits in a 28px strip at the bottom of the panel. It's
-    // only visible when the current track has a Spotify external URL.
-    auto bounds = getLocalBounds().reduced (12);
+    // 28 px strip at the bottom of the panel for whichever
+    // external-link buttons are visible. Each shown button takes a
+    // 140 px slot from the left, with an 8 px gap. Hidden buttons
+    // collapse cleanly.
+    auto bounds    = getLocalBounds().reduced (12);
     auto buttonRow = bounds.removeFromBottom (28);
-    openSpotifyButton.setBounds (buttonRow.removeFromLeft (140));
+    if (openSpotifyButton.isVisible())
+    {
+        openSpotifyButton.setBounds (buttonRow.removeFromLeft (140));
+        buttonRow.removeFromLeft (8);
+    }
+    if (openDiscogsButton.isVisible())
+    {
+        openDiscogsButton.setBounds (buttonRow.removeFromLeft (140));
+    }
 }
 
 void TrackDetailComponent::setSelectedTrackIndex (int index)
 {
     if (selectedIndex == index) return;
     selectedIndex = index;
-    refreshOpenSpotifyButton();
+    refreshExternalLinkButtons();
     repaint();
 }
 
@@ -53,13 +65,24 @@ void TrackDetailComponent::onOpenSpotifyClicked()
     juce::URL (tf.spotifyExternalUrl).launchInDefaultBrowser();
 }
 
-void TrackDetailComponent::refreshOpenSpotifyButton()
+void TrackDetailComponent::onOpenDiscogsClicked()
 {
-    const bool show = selectedIndex >= 0
-                       && selectedIndex < library.getNumTracks()
-                       && library.getTrack (selectedIndex)
-                                  .spotifyExternalUrl.isNotEmpty();
-    openSpotifyButton.setVisible (show);
+    if (selectedIndex < 0 || selectedIndex >= library.getNumTracks())
+        return;
+    const auto& tf = library.getTrack (selectedIndex);
+    if (tf.discogsExternalUrl.isEmpty()) return;
+    juce::URL (tf.discogsExternalUrl).launchInDefaultBrowser();
+}
+
+void TrackDetailComponent::refreshExternalLinkButtons()
+{
+    const bool haveTrack = selectedIndex >= 0
+                            && selectedIndex < library.getNumTracks();
+    const auto& tf = haveTrack ? library.getTrack (selectedIndex) : TrackFile{};
+    openSpotifyButton.setVisible (haveTrack && tf.spotifyExternalUrl.isNotEmpty());
+    openDiscogsButton.setVisible (haveTrack && tf.discogsExternalUrl.isNotEmpty());
+    // Re-layout the bottom row in case visibility changed.
+    resized();
 }
 
 namespace
@@ -155,13 +178,12 @@ void TrackDetailComponent::paint (juce::Graphics& g)
 
     drawLabelValue (g, bounds, "Artwork source",
                     TrackFile::artworkSourceText (tf.artworkSource));
+    if (tf.metadataQuery.isNotEmpty())
+        drawLabelValue (g, bounds, "Lookup query", tf.metadataQuery);
 
-    drawLabelValue (g, bounds, "Spotify",
-                    TrackFile::spotifyStatusText (tf.spotifyStatus));
-    if (tf.spotifyQuery.isNotEmpty())
-        drawLabelValue (g, bounds, "Spotify query", tf.spotifyQuery);
-    if (tf.spotifyStatus == TrackFile::SpotifyStatus::Found
-        || tf.spotifyStatus == TrackFile::SpotifyStatus::Uncertain)
+    // Spotify match info (shown when the proxy chose Spotify).
+    if (tf.artworkSource == TrackFile::ArtworkSource::Spotify
+        || tf.spotifyTitle.isNotEmpty())
     {
         if (tf.spotifyArtist.isNotEmpty())
             drawLabelValue (g, bounds, "Spotify artist", tf.spotifyArtist);
@@ -172,40 +194,25 @@ void TrackDetailComponent::paint (juce::Graphics& g)
         if (tf.spotifyExternalUrl.isNotEmpty())
             drawLabelValue (g, bounds, "Spotify URL",    tf.spotifyExternalUrl);
     }
-    if (tf.spotifyStatus == TrackFile::SpotifyStatus::Error
-        && tf.spotifyErrorReason.isNotEmpty())
+
+    // Discogs match info (shown when the proxy chose Discogs).
+    if (tf.artworkSource == TrackFile::ArtworkSource::Discogs
+        || tf.discogsTitle.isNotEmpty())
     {
-        drawLabelValue (g, bounds, "Spotify error", tf.spotifyErrorReason);
+        if (tf.discogsArtist.isNotEmpty())
+            drawLabelValue (g, bounds, "Discogs artist", tf.discogsArtist);
+        if (tf.discogsTitle.isNotEmpty())
+            drawLabelValue (g, bounds, "Discogs title",  tf.discogsTitle);
+        if (tf.discogsReleaseId.isNotEmpty())
+            drawLabelValue (g, bounds, "Discogs release", tf.discogsReleaseId);
+        if (tf.discogsExternalUrl.isNotEmpty())
+            drawLabelValue (g, bounds, "Discogs URL",    tf.discogsExternalUrl);
     }
-    if (tf.spotifyStatus == TrackFile::SpotifyStatus::CredentialsMissing)
-    {
-        drawLabelValue (g, bounds, "Spotify note",
-                        "Add credentials to ~/Library/Application Support/"
-                        "TuneList/config.json (or export SPOTIFY_CLIENT_ID + "
-                        "SPOTIFY_CLIENT_SECRET) and relaunch.");
-    }
-    if (tf.artworkSource != TrackFile::ArtworkSource::Spotify
+
+    if (tf.artworkSource == TrackFile::ArtworkSource::None
         && tf.artworkFallbackReason.isNotEmpty())
     {
         drawLabelValue (g, bounds, "Fallback reason", tf.artworkFallbackReason);
-    }
-
-    drawLabelValue (g, bounds, "Discogs",
-                    TrackFile::discogsStatusText (tf.discogsStatus));
-
-    if (tf.discogsStatus == TrackFile::DiscogsStatus::Found)
-    {
-        if (tf.discogsArtist.isNotEmpty() || tf.discogsTitle.isNotEmpty())
-            drawLabelValue (g, bounds, "Discogs match",
-                            tf.discogsArtist + "  |  " + tf.discogsTitle);
-        if (tf.discogsReleaseId.isNotEmpty())
-            drawLabelValue (g, bounds, "Release ID", tf.discogsReleaseId);
-    }
-
-    if (tf.discogsStatus == TrackFile::DiscogsStatus::Error
-        && tf.discogsErrorReason.isNotEmpty())
-    {
-        drawLabelValue (g, bounds, "Discogs error", tf.discogsErrorReason);
     }
 
     // Playback row

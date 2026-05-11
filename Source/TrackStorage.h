@@ -69,6 +69,7 @@ private:
         juce::String  discogsReleaseId;
         juce::String  discogsCoverUrl;
         juce::String  discogsThumbUrl;
+        juce::String  discogsExternalUrl;
         juce::String  discogsErrorReason;
 
         TrackFile::SpotifyStatus spotifyStatus = TrackFile::SpotifyStatus::NotSearched;

@@ -60,60 +60,26 @@ A small console test runner is built alongside the app:
 
 Currently exercises the filename parser against the example filenames from Dave's tune folder plus a handful of edge cases (commas + internal hyphen in artist, parens-heavy titles, explicit `Foo - Larse Remix` versions, malformed inputs, supported-extensions sanity).
 
-## Cover-art lookup (Spotify-first, Discogs fallback)
+## Cover-art lookup
 
-After a folder scan the app fetches cover art for the sample tracks. Sources are tried in this order, per track:
+Artwork lookup goes through the **TuneList metadata service** — a small Cloud Run proxy that holds the Spotify and Discogs API credentials in Google Secret Manager and implements the Spotify-first / Discogs-fallback policy server-side. The desktop app just calls the proxy:
 
-1. **Spotify** — requires `SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET` env vars. Uses the Client Credentials flow (no browser login). If Spotify returns a track match with a usable album image, that image wins and Discogs is *not* queried for this track.
-2. **Discogs** — used as fallback when Spotify has no credentials, no match, no image, or errored. Optional `DISCOGS_USER_TOKEN` env var unlocks the higher rate limit.
-3. If neither produces art, the no-cover placeholder is shown.
-
-The detail panel for each track shows an **Artwork source** row (`Spotify` / `Discogs` / `None`) and, when Spotify matched, an **Open Spotify** button that launches the track page in your browser.
-
-The toolbar **Re-lookup** button force-refreshes every track. Use it after first granting Spotify credentials to promote old Discogs covers to Spotify ones.
-
-### Setup — two ways to supply credentials
-
-TuneList resolves each credential from **config.json first, environment variable second**. Use whichever you prefer; mixing is fine.
-
-**Option A — local config file (recommended for normal Finder/Dock launches):**
-
-```bash
-mkdir -p "$HOME/Library/Application Support/TuneList"
-cat > "$HOME/Library/Application Support/TuneList/config.json" <<'JSON'
-{
-  "spotifyClientId":     "your_client_id_here",
-  "spotifyClientSecret": "your_client_secret_here",
-  "discogsUserToken":    "your_discogs_token_here"
-}
-JSON
-chmod 600 "$HOME/Library/Application Support/TuneList/config.json"
+```
+GET https://tunelist-metadata-96674523622.europe-north1.run.app/lookup
+    ?artist=<artist>&title=<title>
 ```
 
-This is the robust path because macOS GUI launches from Finder/Dock don't inherit the shell's exported env vars. The file lives **outside** the repo and is gitignored even if a copy ends up in the working tree.
+After a folder scan the app issues one request per track. The proxy returns a normalised JSON payload telling TuneList which source won (Spotify, Discogs, or none) and the image URL to cache.
 
-**Option B — environment variables (handy when launching from Terminal):**
+**End users do not need Spotify or Discogs API tokens.** The macOS app no longer reads `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, or `DISCOGS_USER_TOKEN`; those credentials live in the Cloud Run service.
 
-```bash
-export SPOTIFY_CLIENT_ID="your_client_id_here"
-export SPOTIFY_CLIENT_SECRET="your_client_secret_here"
-export DISCOGS_USER_TOKEN="your_discogs_token_here"
-open "build/TuneList_artefacts/TuneList.app"
-```
+The detail panel for each track shows an **Artwork source** row (`Spotify` / `Discogs` / `None`), the matched artist / title / album, the exact `Lookup query` the proxy ran, and **Open Spotify** / **Open Discogs** buttons that launch the corresponding web page in your browser when the proxy supplied a URL.
 
-- Get Spotify credentials from <https://developer.spotify.com/dashboard> → "Create app". You do **not** need a redirect URI for TuneList — it only does the Client Credentials flow against the public catalogue.
-- Get a Discogs token at <https://www.discogs.com/settings/developers> → "Generate new token".
-- **Never commit any of these.** TuneList reads them from `config.json` or env vars only; there is no embedded copy.
-
-The app still launches fine without any of these set; it just won't fetch Spotify artwork (and Discogs is rate-limited without its token). The toolbar's diagnostics row will say `Spotify: missing credentials` when nothing is found.
-
-The Discogs User-Agent is `TuneList/0.1 +https://makeelectronicsound.com`. Requests are paced at ~1.6/sec, well under Discogs' 60/min cap.
-
-The footer shows the combined attribution: *"Data and artwork may be provided by Spotify and Discogs. This application is not affiliated with, sponsored or endorsed by Spotify or Discogs."*
+The toolbar **Re-lookup** button force-refreshes every track via the proxy. Use it after switching folders or after the proxy itself gets a backend tweak.
 
 ### Where artwork is cached
 
-Both Spotify and Discogs images go through the same disk cache (content-addressed by URL hash):
+Both Spotify and Discogs images go through the same on-disk cache (content-addressed by URL hash):
 
 ```
 ~/Library/Application Support/My Tunes/ArtworkCache/<hash>.<ext>
@@ -121,9 +87,15 @@ Both Spotify and Discogs images go through the same disk cache (content-addresse
 
 No artwork is stored inside the repo. The Application Support data path is **deliberately kept as "My Tunes"** even though the app was renamed to TuneList — so existing user state (tags, priority, notes, cached art) migrates with no copy step.
 
+The footer shows the combined attribution: *"Data and artwork may be provided by Spotify and Discogs. This application is not affiliated with, sponsored or endorsed by Spotify or Discogs."*
+
+### Developer note: legacy direct-API clients
+
+The repository still contains `SpotifyClient` and `DiscogsClient` source files plus a `TuneListConfig` credential loader. These are no longer wired into the running app — `LookupController` exclusively uses `MetadataProxyClient`. The files are kept compiled (so the unit tests covering URL-encoding, credential resolution, and JSON parsing remain green) but the bundled app will never read `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` / `DISCOGS_USER_TOKEN` during normal use. Drop them entirely whenever the team is comfortable.
+
 ### What the lookup does NOT do (yet)
 - It only processes the **20-track sample** (Dave's deliberate cap on v0.1).
-- No master vs release disambiguation (Discogs), no fuzzy matching, no per-track manual override.
+- No fuzzy matching, no per-track manual override.
 
 ## Library / state location
 

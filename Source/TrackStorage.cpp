@@ -144,6 +144,7 @@ bool TrackStorage::load()
         saved.discogsReleaseId   = t.getProperty ("discogsReleaseId",   juce::var()).toString();
         saved.discogsCoverUrl    = t.getProperty ("discogsCoverUrl",    juce::var()).toString();
         saved.discogsThumbUrl    = t.getProperty ("discogsThumbUrl",    juce::var()).toString();
+        saved.discogsExternalUrl = t.getProperty ("discogsExternalUrl", juce::var()).toString();
         saved.discogsErrorReason = t.getProperty ("discogsErrorReason", juce::var()).toString();
 
         // Spotify fields — tolerant of older JSON without these keys.
@@ -204,6 +205,7 @@ void TrackStorage::applySavedFieldsToLibrary (TrackLibrary& library) const
         tf.discogsTitle       = saved.discogsTitle;
         tf.discogsReleaseId   = saved.discogsReleaseId;
         tf.discogsCoverUrl    = saved.discogsCoverUrl;
+        tf.discogsExternalUrl = saved.discogsExternalUrl;
         tf.discogsErrorReason = saved.discogsErrorReason;
 
         tf.spotifyStatus      = saved.spotifyStatus;
@@ -252,6 +254,7 @@ bool TrackStorage::snapshotAndSave (const TrackLibrary& library)
         saved.discogsTitle       = tf.discogsTitle;
         saved.discogsReleaseId   = tf.discogsReleaseId;
         saved.discogsCoverUrl    = tf.discogsCoverUrl;
+        saved.discogsExternalUrl = tf.discogsExternalUrl;
         saved.discogsErrorReason = tf.discogsErrorReason;
         saved.spotifyStatus      = tf.spotifyStatus;
         saved.spotifyArtist      = tf.spotifyArtist;
@@ -281,6 +284,7 @@ bool TrackStorage::snapshotAndSave (const TrackLibrary& library)
         t->setProperty ("discogsReleaseId",   saved.discogsReleaseId);
         t->setProperty ("discogsCoverUrl",    saved.discogsCoverUrl);
         t->setProperty ("discogsThumbUrl",    saved.discogsThumbUrl);
+        t->setProperty ("discogsExternalUrl", saved.discogsExternalUrl);
         t->setProperty ("discogsErrorReason", saved.discogsErrorReason);
 
         t->setProperty ("spotifyStatus",      spotifyStatusToString (saved.spotifyStatus));

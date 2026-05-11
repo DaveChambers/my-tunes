@@ -292,16 +292,12 @@ void MainComponent::onTrackLookupProcessed (int /*trackIndex*/,
         case TrackFile::ArtworkSource::None:    ++countNoArtwork;  break;
     }
 
-    if (o.spotifyStatus == TrackFile::SpotifyStatus::Error)
-        ++countSpotifyError;
-    if (o.discogsStatus == TrackFile::DiscogsStatus::Error)
-        ++countDiscogsError;
-
-    if (o.spotifyError.isNotEmpty()
-        && o.spotifyStatus != TrackFile::SpotifyStatus::CredentialsMissing)
-        lastSpotifyError = o.spotifyError;
-    if (o.discogsError.isNotEmpty())
-        lastDiscogsError = o.discogsError;
+    if (o.proxySource == MetadataProxyClient::Source::Error)
+    {
+        ++countLookupError;
+        if (o.proxyError.isNotEmpty())
+            lastLookupError = o.proxyError;
+    }
 
     updateDiagnosticsLabel();
 }
@@ -418,9 +414,8 @@ void MainComponent::recomputeBoardCounts()
 void MainComponent::resetLookupCounters()
 {
     countSpotifyArt = countDiscogsArt = countNoArtwork = 0;
-    countSpotifyError = countDiscogsError = 0;
-    lastSpotifyError.clear();
-    lastDiscogsError.clear();
+    countLookupError = 0;
+    lastLookupError.clear();
 }
 
 void MainComponent::updateFolderLabel()
@@ -483,74 +478,34 @@ void MainComponent::updateStatusLabel()
 
 void MainComponent::updateDiagnosticsLabel()
 {
-    // Spotify-led diagnostics row. The goal is that Dave can answer
-    // these questions from this single line without opening Console:
-    //   - which credential source did we resolve (config.json / env /
-    //     missing)?
-    //   - did the Spotify auth round-trip succeed (or which HTTP code)?
-    //   - is a lookup actually running, and how far?
-    //   - how many Spotify hits vs Discogs fallbacks did the last
-    //     batch produce?
-    //   - if something went wrong, was it auth, search, or Discogs?
+    // Diagnostics row, now driven entirely by the metadata-service
+    // outcome. Spotify/Discogs credentials are held server-side, so
+    // there's nothing local for the user to configure.
     juce::String text;
 
-    // ---- Spotify credentials + source -----------------------------------
-    if (spotifyClient.hasCredentials())
-    {
-        text << "Spotify: credentials found";
-        const auto src = config.getSpotifyClientIdSource();
-        if (src.isNotEmpty())
-            text << " (" << src << ")";
-    }
-    else
-    {
-        text << "Spotify: missing credentials";
-    }
-
-    // ---- Spotify auth state ---------------------------------------------
-    if (spotifyClient.hasCredentials())
-    {
-        const int authCode = spotifyClient.getLastAuthHttpCode();
-        if (authCode == 0)
-            text << " | auth not yet attempted";
-        else if (authCode >= 200 && authCode < 300)
-            text << " | auth OK";
-        else if (authCode < 0)
-            text << " | auth connect failed";
-        else
-            text << " | auth error " << authCode;
-    }
-
-    // ---- Discogs --------------------------------------------------------
-    text << "   |   Discogs: "
-         << (discogsClient.hasToken() ? "token" : "no token (unauth)");
-
+    text << "Metadata service: " << metadataClient.getEndpoint();
     text << "   |   ";
 
-    // ---- Lookup progress / batch summary --------------------------------
     if (isLookingUp)
     {
-        text << "lookup running " << lookupDone << "/" << lookupTotal;
+        text << "looking up " << lookupDone << "/" << lookupTotal;
     }
     else if (lookupTotal == 0
              && (countSpotifyArt + countDiscogsArt + countNoArtwork) == 0)
     {
-        text << "lookup idle";
+        text << "idle";
     }
     else
     {
-        text << "Spotify covers " << countSpotifyArt
-             << ", Discogs fallback "  << countDiscogsArt
-             << ", none "              << countNoArtwork;
-        if (countSpotifyError + countDiscogsError > 0)
-            text << ", errors "
-                 << (countSpotifyError + countDiscogsError);
+        text << "found "         << countSpotifyArt << " Spotify, "
+             <<                       countDiscogsArt << " Discogs, "
+             <<                       countNoArtwork  << " none";
+        if (countLookupError > 0)
+            text << ", errors " << countLookupError;
     }
 
-    if (lastSpotifyError.isNotEmpty())
-        text << "   |   Spotify err: " << lastSpotifyError;
-    if (lastDiscogsError.isNotEmpty())
-        text << "   |   Discogs err: " << lastDiscogsError;
+    if (lastLookupError.isNotEmpty())
+        text << "   |   last error: " << lastLookupError;
 
     diagnosticsLabel.setText (text, juce::dontSendNotification);
 }
