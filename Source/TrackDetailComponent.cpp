@@ -161,14 +161,25 @@ void TrackDetailComponent::paint (juce::Graphics& g)
     if (tf.spotifyStatus == TrackFile::SpotifyStatus::Found
         || tf.spotifyStatus == TrackFile::SpotifyStatus::Uncertain)
     {
-        if (tf.spotifyArtist.isNotEmpty() || tf.spotifyTitle.isNotEmpty())
-            drawLabelValue (g, bounds, "Spotify match",
-                            tf.spotifyArtist + "  |  " + tf.spotifyTitle);
+        if (tf.spotifyArtist.isNotEmpty())
+            drawLabelValue (g, bounds, "Spotify artist", tf.spotifyArtist);
+        if (tf.spotifyTitle.isNotEmpty())
+            drawLabelValue (g, bounds, "Spotify title",  tf.spotifyTitle);
+        if (tf.spotifyAlbumId.isNotEmpty())
+            drawLabelValue (g, bounds, "Spotify album id", tf.spotifyAlbumId);
+        if (tf.spotifyExternalUrl.isNotEmpty())
+            drawLabelValue (g, bounds, "Spotify URL", tf.spotifyExternalUrl);
     }
     if (tf.spotifyStatus == TrackFile::SpotifyStatus::Error
         && tf.spotifyErrorReason.isNotEmpty())
     {
         drawLabelValue (g, bounds, "Spotify error", tf.spotifyErrorReason);
+    }
+    if (tf.spotifyStatus == TrackFile::SpotifyStatus::CredentialsMissing)
+    {
+        drawLabelValue (g, bounds, "Spotify note",
+                        "Set SPOTIFY_CLIENT_ID + SPOTIFY_CLIENT_SECRET before "
+                        "launching to enable Spotify-first lookup.");
     }
 
     drawLabelValue (g, bounds, "Discogs",

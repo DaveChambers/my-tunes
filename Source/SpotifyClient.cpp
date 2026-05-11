@@ -99,7 +99,15 @@ bool SpotifyClient::fetchClientCredentialsToken (juce::String& outError)
         return false;
     }
 
-    // HTTP Basic auth: base64(client_id:client_secret)
+    juce::Logger::writeToLog ("Spotify: token request started");
+
+    // HTTP Basic auth: base64(client_id:client_secret).
+    //
+    // SECURITY: clientId / clientSecret are kept in this single
+    // MemoryBlock + the resulting Authorization header for the duration
+    // of one POST. They are never written to disk, never logged in
+    // plaintext, and never exposed through any public accessor on this
+    // class.
     const auto basic = clientId + ":" + clientSecret;
     juce::MemoryBlock raw (basic.toRawUTF8(), basic.getNumBytesAsUTF8());
     const auto basicB64 = juce::Base64::toBase64 (raw.getData(), raw.getSize());
@@ -119,6 +127,7 @@ bool SpotifyClient::fetchClientCredentialsToken (juce::String& outError)
     if (! stream.connect (nullptr))
     {
         outError = "token: connect failed";
+        juce::Logger::writeToLog ("Spotify: token request FAILED (connect)");
         return false;
     }
 
@@ -133,6 +142,8 @@ bool SpotifyClient::fetchClientCredentialsToken (juce::String& outError)
             case 429: outError = "token HTTP 429 (rate-limited)";        break;
             default:  outError = "token HTTP " + juce::String (httpCode); break;
         }
+        juce::Logger::writeToLog ("Spotify: token request FAILED HTTP "
+                                   + juce::String (httpCode));
         return false;
     }
 
@@ -156,6 +167,9 @@ bool SpotifyClient::fetchClientCredentialsToken (juce::String& outError)
     accessToken      = bearer;
     tokenExpiresAtMs = juce::Time::currentTimeMillis()
                         + ((juce::int64) juce::jmax (60, expiresInSec)) * 1000;
+
+    juce::Logger::writeToLog ("Spotify: token OK (expires in "
+                               + juce::String (expiresInSec) + "s)");
     return true;
 }
 
@@ -169,6 +183,7 @@ SpotifyClient::Result SpotifyClient::lookup (const juce::String& artist,
     {
         r.status      = TrackFile::SpotifyStatus::CredentialsMissing;
         r.errorReason = "SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET not set";
+        juce::Logger::writeToLog ("Spotify: credentials missing - skipping search");
         return r;
     }
 
@@ -178,6 +193,9 @@ SpotifyClient::Result SpotifyClient::lookup (const juce::String& artist,
         r.errorReason = "empty artist + title";
         return r;
     }
+
+    juce::Logger::writeToLog (
+        "Spotify: search artist=\"" + artist + "\" title=\"" + title + "\"");
 
     juce::String tokenError;
     if (! ensureAccessToken (tokenError))
@@ -314,8 +332,12 @@ SpotifyClient::Result SpotifyClient::lookup (const juce::String& artist,
     if (! items.isArray() || items.size() == 0)
     {
         r.status = TrackFile::SpotifyStatus::NotFound;
+        juce::Logger::writeToLog ("Spotify: 0 results");
         return r;
     }
+
+    juce::Logger::writeToLog ("Spotify: " + juce::String (items.size())
+                              + " result(s)");
 
     // Spotify's relevance ranking is already pretty good; we take the
     // first hit. We could rank by artist-substring match but Dave's
@@ -343,6 +365,11 @@ SpotifyClient::Result SpotifyClient::lookup (const juce::String& artist,
         r.status = TrackFile::SpotifyStatus::Found;
     else
         r.status = TrackFile::SpotifyStatus::Uncertain;
+
+    juce::Logger::writeToLog (
+        "Spotify: pick \"" + r.matchedArtist + " - " + r.matchedTitle + "\""
+        + (r.imageUrl.isEmpty() ? " (no image)" : " (image OK)")
+        + " status=" + TrackFile::spotifyStatusText (r.status));
 
     return r;
 }

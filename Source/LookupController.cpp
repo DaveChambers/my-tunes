@@ -71,12 +71,22 @@ void LookupController::run()
 {
     auto& libraryRef = library;
 
+    juce::Logger::writeToLog (
+        juce::String ("Lookup: starting batch of ") + juce::String (total)
+        + " track(s); Spotify creds="
+        + (spotify.hasCredentials() ? "yes" : "no")
+        + ", Discogs token="
+        + (discogs.hasToken() ? "yes" : "no"));
+
     for (auto& task : tasks)
     {
         if (threadShouldExit())
             break;
 
         const int idx = task.index;
+        juce::Logger::writeToLog (
+            "Lookup[" + juce::String (idx) + "]: artist=\"" + task.artist
+            + "\" title=\"" + task.title + "\"");
 
         // 1) Mark both statuses as Searching on the message thread so
         //    the UI can show "(searching...)" placeholders. We don't
@@ -112,12 +122,26 @@ void LookupController::run()
                 spotifyArtFile = artwork.ensureCachedFile (spotifyResult.imageUrl);
                 spotifyWins = spotifyArtFile.existsAsFile()
                               && spotifyArtFile.getSize() > 0;
+                juce::Logger::writeToLog (
+                    spotifyWins
+                      ? juce::String ("Lookup[" + juce::String (idx) + "]: Spotify image cached OK")
+                      : juce::String ("Lookup[" + juce::String (idx) + "]: Spotify image cache FAILED -> Discogs fallback"));
+            }
+            else
+            {
+                juce::Logger::writeToLog (
+                    "Lookup[" + juce::String (idx) + "]: Spotify "
+                    + TrackFile::spotifyStatusText (spotifyResult.status)
+                    + " -> Discogs fallback");
             }
         }
         else
         {
             spotifyResult.status      = TrackFile::SpotifyStatus::CredentialsMissing;
             spotifyResult.errorReason = "SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET not set";
+            juce::Logger::writeToLog (
+                "Lookup[" + juce::String (idx)
+                + "]: Spotify creds missing -> Discogs fallback");
         }
 
         // 3) Discogs fallback if Spotify didn't win.
@@ -130,6 +154,12 @@ void LookupController::run()
         {
             discogsResult = discogs.lookup (task.artist, task.title);
             discogsRan    = true;
+            juce::Logger::writeToLog (
+                "Lookup[" + juce::String (idx) + "]: Discogs "
+                + TrackFile::discogsStatusText (discogsResult.status)
+                + (discogsResult.errorReason.isNotEmpty()
+                    ? juce::String (" (") + discogsResult.errorReason + ")"
+                    : juce::String()));
 
             const auto imgUrl = discogsResult.thumbUrl.isNotEmpty()
                                   ? discogsResult.thumbUrl
@@ -256,6 +286,12 @@ void LookupController::run()
                 if (onProgress) onProgress (done, t);
             });
         }
+
+        juce::Logger::writeToLog (
+            "Lookup[" + juce::String (idx) + "]: final artworkSource="
+            + (spotifyWinsCopy ? juce::String ("Spotify")
+               : (discogsWinsCopy ? juce::String ("Discogs")
+                                  : juce::String ("None"))));
 
         // 6) Be nice to both APIs.
         wait (kInterRequestPauseMs);

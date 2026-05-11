@@ -19,24 +19,27 @@ FetchContent_MakeAvailable(JUCE)
 
 # --- macOS standalone app --------------------------------------------------
 
-# Bundle icon: JUCE bakes ICON_BIG into the app's Info.plist + Resources
-# at configure time (generates Icon.icns inside the .app), so the source
-# PNG must exist at configure time. The TuneList icon lives at
-# Assets/TuneListIcon.png; if for some reason it's missing we fall back
-# to building without a custom icon rather than failing configure.
+# Bundle icon: we ship a pre-built multi-resolution .icns
+# (Assets/TuneListIcon.icns, built once with iconutil from the source
+# PNG and committed to the repo) instead of letting JUCE bake a
+# single-size Icon.icns from the PNG. JUCE's juceaide produces an
+# .icns containing only the size derived from the input PNG, which
+# leaves Finder/Dock to scale at small sizes and sometimes falls back
+# to a generic-looking glyph. Shipping the standard 10-size iconset
+# gives macOS exactly what it wants at every display size.
 #
-# BUNDLE_ID is intentionally kept on the legacy "mytunes" reverse-DNS so
-# that previously-saved user state under
+# We give the icon a non-generic filename (TuneListIcon.icns rather
+# than the JUCE default Icon.icns) so Launch Services treats the
+# bundle's icon resource as new and refreshes its cached glyph for
+# CFBundleIdentifier=com.makeelectronicsound.mytunes — which is the
+# main reason a previously-cached default icon was still appearing
+# in Dock/Cmd+Tab even though the .icns was valid.
+#
+# BUNDLE_ID is intentionally kept on the legacy "mytunes" reverse-DNS
+# so that previously-saved user state under
 #   ~/Library/Application Support/My Tunes/
 # remains the canonical store across the rename to TuneList.
-set(_app_icon_args "")
-set(_app_icon_path "${CMAKE_CURRENT_SOURCE_DIR}/Assets/TuneListIcon.png")
-if(EXISTS "${_app_icon_path}")
-    list(APPEND _app_icon_args ICON_BIG "${_app_icon_path}")
-endif()
-
 juce_add_gui_app(TuneList
-    ${_app_icon_args}
     PRODUCT_NAME    "TuneList"
     BUNDLE_ID       "com.makeelectronicsound.mytunes"
     COMPANY_NAME    "Make Electronic Sound"
@@ -98,6 +101,28 @@ target_link_libraries(TuneList PRIVATE
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags
 )
+
+# Post-build: install our pre-built multi-resolution .icns into the app
+# bundle and point CFBundleIconFile at it. JUCE has already written
+# Info.plist by this stage; we patch the icon-file key in place with
+# PlistBuddy. We also remove the JUCE-generated Icon.icns to avoid two
+# competing icon resources in Contents/Resources.
+set(_tunelist_icns "${CMAKE_CURRENT_SOURCE_DIR}/Assets/TuneListIcon.icns")
+if(APPLE AND EXISTS "${_tunelist_icns}")
+    add_custom_command(TARGET TuneList POST_BUILD
+        COMMENT "Install TuneListIcon.icns into bundle + patch Info.plist"
+        COMMAND ${CMAKE_COMMAND} -E copy "${_tunelist_icns}"
+                "$<TARGET_BUNDLE_DIR:TuneList>/Contents/Resources/TuneListIcon.icns"
+        COMMAND ${CMAKE_COMMAND} -E remove -f
+                "$<TARGET_BUNDLE_DIR:TuneList>/Contents/Resources/Icon.icns"
+        COMMAND /usr/libexec/PlistBuddy
+                -c "Set :CFBundleIconFile TuneListIcon"
+                "$<TARGET_BUNDLE_DIR:TuneList>/Contents/Info.plist"
+        # Touching the bundle nudges Launch Services to re-register it,
+        # which helps refresh the Dock/Finder cached icon during dev.
+        COMMAND touch "$<TARGET_BUNDLE_DIR:TuneList>"
+        VERBATIM)
+endif()
 
 # --- Console test runner ---------------------------------------------------
 

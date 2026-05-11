@@ -483,20 +483,37 @@ void MainComponent::updateStatusLabel()
 
 void MainComponent::updateDiagnosticsLabel()
 {
+    // Spotify-led diagnostics row. The goal is that Dave can answer
+    // four questions from this single line without opening Console:
+    //   - are Spotify credentials being detected at all?
+    //   - is a lookup actually running?
+    //   - how many Spotify hits vs Discogs fallbacks did the last
+    //     batch produce?
+    //   - if something went wrong, was it auth, search, or Discogs?
     juce::String text;
+
     text << "Spotify: "
-         << (spotifyClient.hasCredentials() ? "creds" : "no creds")
-         << "   |   Discogs: "
-         << (discogsClient.hasToken() ? "token" : "no token (unauth)")
-         << "   |   ";
+         << (spotifyClient.hasCredentials() ? "credentials found"
+                                             : "missing credentials");
+    text << "   |   Discogs: "
+         << (discogsClient.hasToken() ? "token" : "no token (unauth)");
+    text << "   |   ";
 
     if (isLookingUp)
-        text << "lookup running";
+    {
+        text << "lookup running " << lookupDone << "/" << lookupTotal;
+    }
     else if (lookupTotal == 0
              && (countSpotifyArt + countDiscogsArt + countNoArtwork) == 0)
+    {
         text << "lookup idle";
+    }
     else
-        text << "lookup complete";
+    {
+        text << "Spotify covers " << countSpotifyArt
+             << ", Discogs fallback "  << countDiscogsArt
+             << ", none "              << countNoArtwork;
+    }
 
     if (lastSpotifyError.isNotEmpty())
         text << "   |   Spotify err: " << lastSpotifyError;

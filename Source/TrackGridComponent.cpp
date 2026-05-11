@@ -235,8 +235,19 @@ void TrackGridComponent::paintCard (juce::Graphics& g, int libraryIndex,
                      row.removeFromLeft (row.getWidth() / 2),
                      juce::Justification::centredLeft);
 
+        // Right-side label tells Dave which API supplied the cover (or
+        // the per-track Spotify state when nothing came back yet). This
+        // is the at-a-glance answer to "did Spotify run?".
+        juce::String sourceText;
+        if (tf.artworkSource == TrackFile::ArtworkSource::Spotify)
+            sourceText = "Spotify";
+        else if (tf.artworkSource == TrackFile::ArtworkSource::Discogs)
+            sourceText = "Discogs";
+        else
+            sourceText = TrackFile::spotifyStatusText (tf.spotifyStatus);
+
         g.setColour (juce::Colours::lightgrey.withAlpha (0.7f));
-        g.drawText  (TrackFile::discogsStatusText (tf.discogsStatus),
+        g.drawText  (sourceText,
                      row,
                      juce::Justification::centredRight);
     }

@@ -23,7 +23,7 @@
 // which app build he's running. Bump the suffix on every behaviour
 // change.
 #ifndef MYTUNES_BUILD_LABEL
- #define MYTUNES_BUILD_LABEL "v0.1 - Spotify-first artwork"
+ #define MYTUNES_BUILD_LABEL "v0.1 - Spotify diagnostics + real .icns"
 #endif
 
 class MainComponent : public juce::Component,
