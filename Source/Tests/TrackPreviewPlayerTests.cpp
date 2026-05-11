@@ -1,6 +1,41 @@
+#include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_core/juce_core.h>
 
 #include "../TrackPreviewPlayer.h"
+
+namespace
+{
+    // Writes a short stereo silent WAV at `file`. Returns true on
+    // success. Used to give the resume tests a real, openable audio
+    // file without depending on any sample asset shipped with the
+    // repo. We pick 6 seconds at 44.1 kHz mono so the file is tiny
+    // (~520 KB) yet long enough that "seek to 2.0 s" is a meaningful
+    // resume target.
+    bool writeTestWav (const juce::File& file)
+    {
+        const int    sampleRate    = 44100;
+        const double durationSecs  = 6.0;
+        const int    numChannels   = 1;
+        const int    numSamples    = (int) (sampleRate * durationSecs);
+
+        juce::AudioBuffer<float> buf (numChannels, numSamples);
+        buf.clear();
+
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatWriter> writer;
+
+        if (auto out = file.createOutputStream())
+        {
+            writer.reset (wav.createWriterFor (out.release(),
+                                                sampleRate,
+                                                (unsigned int) numChannels,
+                                                16, {}, 0));
+        }
+        if (writer == nullptr) return false;
+
+        return writer->writeFromAudioSampleBuffer (buf, 0, numSamples);
+    }
+}
 
 class TrackPreviewPlayerTests : public juce::UnitTest
 {
@@ -139,6 +174,142 @@ public:
         //  in the same console process tends to hang on macOS audio HAL
         //  state. The play/stop/switch state machine is exercised
         //  end-to-end when the running app drives the player.)
+
+        // ---- Resume contract (Dave's spec). All in a single player
+        //      instance to avoid the AudioDeviceManager-reinit hang
+        //      noted above. We write two short real WAVs to a temp
+        //      folder so play() actually opens a reader and the
+        //      seek path runs end-to-end.
+        const auto wavA = juce::File::createTempFile (".wav");
+        const auto wavB = juce::File::createTempFile (".wav");
+        if (! writeTestWav (wavA) || ! writeTestWav (wavB))
+        {
+            logMessage ("(skipped resume contract tests — couldn't write temp WAVs)");
+            wavA.deleteFile();
+            wavB.deleteFile();
+            return;
+        }
+
+        TrackPreviewPlayer p;
+        if (p.getLastError().isNotEmpty())
+        {
+            // Audio device couldn't initialise (sandboxed CI, no audio
+            // HAL, etc.) — skip the live tests rather than fail.
+            logMessage ("(skipped resume contract tests — audio device unavailable: "
+                        + p.getLastError() + ")");
+            wavA.deleteFile();
+            wavB.deleteFile();
+            return;
+        }
+
+        beginTest ("play() succeeds on a real WAV and reports activelyPlaying");
+        {
+            const bool ok = p.play (7, wavA);
+            expect       (ok);
+            expect       (p.isPlaying());
+            expectEquals (p.getPlayingTrackIndex(), 7);
+            expectEquals (p.getPlayingFile().getFullPathName(), wavA.getFullPathName());
+        }
+
+        beginTest ("manual stop captures the transport position into resume");
+        {
+            // The audio device may or may not be actually pumping the
+            // stream, but transport.getCurrentPosition reflects the
+            // next-read position which we can drive directly via
+            // setPositionSeconds. Move the playhead to 2.0 s and stop.
+            p.setPositionSeconds (2.0);
+            p.stop();
+
+            expect       (! p.isPlaying());
+            expect       (p.hasPausedTrack());
+            expectEquals (p.getPausedTrackIndex(), 7);
+            expectEquals (p.getPausedTrackFile().getFullPathName(),
+                          wavA.getFullPathName());
+            // Allow a tiny tolerance for sample-rounded position.
+            expectWithinAbsoluteError (p.getPausedPositionSeconds(),
+                                        2.0, 0.05);
+        }
+
+        beginTest ("play() of the same file resumes from the captured position");
+        {
+            const bool ok = p.play (7, wavA);
+            expect       (ok);
+            expect       (p.isPlaying());
+            // After play(), getCurrentPositionSeconds reads the new
+            // transport's next-read position. We seeked to 2.0 s in
+            // the previous test, so this should be ~2.0 s — NOT 0.
+            expectWithinAbsoluteError (p.getCurrentPositionSeconds(),
+                                        2.0, 0.1);
+        }
+
+        beginTest ("scrub-then-stop captures the SCRUBBED position");
+        {
+            // We're already playing wavA. Scrub to 4.0 s, then stop.
+            p.setPositionSeconds (4.0);
+            p.stop();
+
+            expect       (p.hasPausedTrack());
+            expectWithinAbsoluteError (p.getPausedPositionSeconds(),
+                                        4.0, 0.05);
+
+            // Verify the next play seeks to 4.0 (the scrubbed point),
+            // not the previous 2.0.
+            const bool ok = p.play (7, wavA);
+            expect (ok);
+            expectWithinAbsoluteError (p.getCurrentPositionSeconds(),
+                                        4.0, 0.1);
+        }
+
+        beginTest ("play() of a DIFFERENT file resets resume to 0");
+        {
+            // Currently playing wavA. Switch to wavB.
+            const bool ok = p.play (11, wavB);
+            expect       (ok);
+            expectEquals (p.getPlayingTrackIndex(), 11);
+            // Fresh track => fresh playback.
+            expectWithinAbsoluteError (p.getCurrentPositionSeconds(),
+                                        0.0, 0.1);
+
+            // And a stop on the new track captures its own position
+            // independently.
+            p.setPositionSeconds (1.0);
+            p.stop();
+            expect (p.hasPausedTrack());
+            expectEquals (p.getPausedTrackIndex(), 11);
+            expectWithinAbsoluteError (p.getPausedPositionSeconds(),
+                                        1.0, 0.05);
+        }
+
+        beginTest ("hasPausedTrack is false after natural end (simulated by "
+                   "seeking past the end)");
+        {
+            // We're currently paused on wavB at 1.0s. Resume.
+            const bool ok = p.play (11, wavB);
+            expect (ok);
+
+            // Seek past the end (the WAV is 6 s long), then stop.
+            // stop()'s "within 0.5 s of end" rule should treat that
+            // as completed and disable hasPausedTrack.
+            p.setPositionSeconds (10.0);  // clamps to total length
+            p.stop();
+
+            expect (! p.hasPausedTrack(),
+                    "stopping at/past end-of-track must not offer a "
+                    "stale resume point");
+        }
+
+        beginTest ("rapid play/stop/play on real WAV doesn't crash");
+        {
+            for (int i = 0; i < 6; ++i)
+            {
+                p.play (12, wavA);
+                p.stop();
+            }
+            expect (! p.isPlaying());
+        }
+
+        wavA.deleteFile();
+        wavB.deleteFile();
     }
 };
 
