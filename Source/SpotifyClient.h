@@ -6,14 +6,13 @@
 
 // Thin synchronous wrapper around the Spotify Web API.
 //
-// Auth: Client Credentials flow. Reads
-//   SPOTIFY_CLIENT_ID
-//   SPOTIFY_CLIENT_SECRET
-// from the environment. No browser redirect / no user login needed —
-// this is a public-catalogue lookup. If either env var is missing the
-// client stays in CredentialsMissing state and lookup() returns
-// immediately without making any network call (so the app still runs
-// happily on machines without Spotify configured).
+// Auth: Client Credentials flow. Credentials are injected by the
+// caller (TuneListConfig resolves them from config.json or env vars).
+// No browser redirect / no user login needed — this is a public-
+// catalogue lookup. If either credential is missing the client stays
+// in CredentialsMissing state and lookup() returns immediately
+// without making any network call (so the app still runs happily on
+// machines without Spotify configured).
 //
 // Threading: lookup() BLOCKS on HTTP (token exchange + search). Callers
 // must run it on a worker thread. LookupController is the only owner.
@@ -24,9 +23,14 @@
 class SpotifyClient
 {
 public:
-    SpotifyClient();
+    // Construct with credentials sourced from TuneListConfig. Either
+    // string may be empty — that just leaves the client in the
+    // CredentialsMissing state.
+    SpotifyClient (juce::String clientId,
+                   juce::String clientSecret);
     ~SpotifyClient();
 
+    // Convenience env helpers, kept for back-compat in tests.
     static juce::String getClientIdFromEnvironment();
     static juce::String getClientSecretFromEnvironment();
 
@@ -35,6 +39,14 @@ public:
         return clientId.isNotEmpty() && clientSecret.isNotEmpty();
     }
 
+    // Most recent token-exchange HTTP status code. 0 means we have not
+    // attempted auth yet (or never will, because credentials are
+    // missing). 200..299 means success, anything else is the error
+    // code from the last failed attempt. This drives the "auth OK /
+    // auth error 401" hint in the diagnostics label.
+    int getLastAuthHttpCode() const noexcept { return lastAuthHttpCode; }
+    bool wasAuthAttempted()   const noexcept { return lastAuthHttpCode != 0; }
+
     struct Result
     {
         TrackFile::SpotifyStatus status = TrackFile::SpotifyStatus::NotSearched;
@@ -42,10 +54,18 @@ public:
         // Best-match track metadata
         juce::String matchedArtist;
         juce::String matchedTitle;
+        juce::String matchedAlbum;
         juce::String trackId;
         juce::String albumId;
         juce::String externalUrl;    // https://open.spotify.com/track/<id>
         juce::String imageUrl;       // album image, usually the medium size
+
+        // The exact `q=` value we sent to /v1/search. Surfaced to the
+        // detail panel so Dave can see what was tried per track.
+        juce::String queryUsed;
+
+        // How many items came back (before scoring/filtering).
+        int          rawResultCount = 0;
 
         // Populated for every error path so the UI can surface the
         // reason on the diagnostics line. Empty on success.
@@ -73,6 +93,7 @@ private:
     // In-memory bearer token cache.
     juce::String accessToken;
     juce::int64  tokenExpiresAtMs = 0;
+    int          lastAuthHttpCode = 0;
 
     // Ensures `accessToken` is valid (acquires/refreshes if needed).
     // Returns true on success; on failure populates `outError` and

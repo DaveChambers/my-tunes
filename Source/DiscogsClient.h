@@ -18,7 +18,10 @@
 class DiscogsClient
 {
 public:
-    DiscogsClient();
+    // Construct with the user token resolved by TuneListConfig
+    // (config.json or env var). Empty string is OK — Discogs allows
+    // unauthenticated search with stricter rate limits.
+    explicit DiscogsClient (juce::String userToken = {});
     ~DiscogsClient();
 
     static juce::String getTokenFromEnvironment();

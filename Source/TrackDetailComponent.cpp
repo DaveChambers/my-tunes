@@ -158,6 +158,8 @@ void TrackDetailComponent::paint (juce::Graphics& g)
 
     drawLabelValue (g, bounds, "Spotify",
                     TrackFile::spotifyStatusText (tf.spotifyStatus));
+    if (tf.spotifyQuery.isNotEmpty())
+        drawLabelValue (g, bounds, "Spotify query", tf.spotifyQuery);
     if (tf.spotifyStatus == TrackFile::SpotifyStatus::Found
         || tf.spotifyStatus == TrackFile::SpotifyStatus::Uncertain)
     {
@@ -165,10 +167,10 @@ void TrackDetailComponent::paint (juce::Graphics& g)
             drawLabelValue (g, bounds, "Spotify artist", tf.spotifyArtist);
         if (tf.spotifyTitle.isNotEmpty())
             drawLabelValue (g, bounds, "Spotify title",  tf.spotifyTitle);
-        if (tf.spotifyAlbumId.isNotEmpty())
-            drawLabelValue (g, bounds, "Spotify album id", tf.spotifyAlbumId);
+        if (tf.spotifyAlbum.isNotEmpty())
+            drawLabelValue (g, bounds, "Spotify album",  tf.spotifyAlbum);
         if (tf.spotifyExternalUrl.isNotEmpty())
-            drawLabelValue (g, bounds, "Spotify URL", tf.spotifyExternalUrl);
+            drawLabelValue (g, bounds, "Spotify URL",    tf.spotifyExternalUrl);
     }
     if (tf.spotifyStatus == TrackFile::SpotifyStatus::Error
         && tf.spotifyErrorReason.isNotEmpty())
@@ -178,8 +180,14 @@ void TrackDetailComponent::paint (juce::Graphics& g)
     if (tf.spotifyStatus == TrackFile::SpotifyStatus::CredentialsMissing)
     {
         drawLabelValue (g, bounds, "Spotify note",
-                        "Set SPOTIFY_CLIENT_ID + SPOTIFY_CLIENT_SECRET before "
-                        "launching to enable Spotify-first lookup.");
+                        "Add credentials to ~/Library/Application Support/"
+                        "TuneList/config.json (or export SPOTIFY_CLIENT_ID + "
+                        "SPOTIFY_CLIENT_SECRET) and relaunch.");
+    }
+    if (tf.artworkSource != TrackFile::ArtworkSource::Spotify
+        && tf.artworkFallbackReason.isNotEmpty())
+    {
+        drawLabelValue (g, bounds, "Fallback reason", tf.artworkFallbackReason);
     }
 
     drawLabelValue (g, bounds, "Discogs",

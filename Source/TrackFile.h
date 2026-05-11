@@ -71,7 +71,15 @@ struct TrackFile
     juce::String  spotifyImageUrl;         // album image we picked
     juce::String  spotifyArtist;
     juce::String  spotifyTitle;
+    juce::String  spotifyAlbum;            // album name (e.g. "Untitled EP")
+    juce::String  spotifyQuery;            // exact q= we sent to /v1/search
     juce::String  spotifyErrorReason;
+
+    // Diagnostic: when artworkSource ends up Discogs or None, this
+    // explains why we didn't use Spotify. Empty string when Spotify
+    // won. Surfaced in the detail panel only — purely for Dave's eyes,
+    // not used by any control flow.
+    juce::String  artworkFallbackReason;
 
     // --- Which source produced the cover that's currently cached -----------
     // Set when LookupController commits a successful lookup. If a Spotify

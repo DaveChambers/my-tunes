@@ -484,21 +484,50 @@ void MainComponent::updateStatusLabel()
 void MainComponent::updateDiagnosticsLabel()
 {
     // Spotify-led diagnostics row. The goal is that Dave can answer
-    // four questions from this single line without opening Console:
-    //   - are Spotify credentials being detected at all?
-    //   - is a lookup actually running?
+    // these questions from this single line without opening Console:
+    //   - which credential source did we resolve (config.json / env /
+    //     missing)?
+    //   - did the Spotify auth round-trip succeed (or which HTTP code)?
+    //   - is a lookup actually running, and how far?
     //   - how many Spotify hits vs Discogs fallbacks did the last
     //     batch produce?
     //   - if something went wrong, was it auth, search, or Discogs?
     juce::String text;
 
-    text << "Spotify: "
-         << (spotifyClient.hasCredentials() ? "credentials found"
-                                             : "missing credentials");
+    // ---- Spotify credentials + source -----------------------------------
+    if (spotifyClient.hasCredentials())
+    {
+        text << "Spotify: credentials found";
+        const auto src = config.getSpotifyClientIdSource();
+        if (src.isNotEmpty())
+            text << " (" << src << ")";
+    }
+    else
+    {
+        text << "Spotify: missing credentials";
+    }
+
+    // ---- Spotify auth state ---------------------------------------------
+    if (spotifyClient.hasCredentials())
+    {
+        const int authCode = spotifyClient.getLastAuthHttpCode();
+        if (authCode == 0)
+            text << " | auth not yet attempted";
+        else if (authCode >= 200 && authCode < 300)
+            text << " | auth OK";
+        else if (authCode < 0)
+            text << " | auth connect failed";
+        else
+            text << " | auth error " << authCode;
+    }
+
+    // ---- Discogs --------------------------------------------------------
     text << "   |   Discogs: "
          << (discogsClient.hasToken() ? "token" : "no token (unauth)");
+
     text << "   |   ";
 
+    // ---- Lookup progress / batch summary --------------------------------
     if (isLookingUp)
     {
         text << "lookup running " << lookupDone << "/" << lookupTotal;
@@ -513,6 +542,9 @@ void MainComponent::updateDiagnosticsLabel()
         text << "Spotify covers " << countSpotifyArt
              << ", Discogs fallback "  << countDiscogsArt
              << ", none "              << countNoArtwork;
+        if (countSpotifyError + countDiscogsError > 0)
+            text << ", errors "
+                 << (countSpotifyError + countDiscogsError);
     }
 
     if (lastSpotifyError.isNotEmpty())

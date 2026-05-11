@@ -22,12 +22,19 @@ Makefile
 # JUCE side-effects
 JuceLibraryCode/
 
-# App-private state and secrets — must NEVER be committed
+# App-private state and secrets — must NEVER be committed.
+# The runtime config file lives outside the repo at
+# ~/Library/Application Support/TuneList/config.json, but any
+# stray copy inside the working tree must stay untracked.
 secrets.json
+config.json
+TuneList/config.json
 .env
 .env.*
 *.token
 DISCOGS_USER_TOKEN
+SPOTIFY_CLIENT_ID
+SPOTIFY_CLIENT_SECRET
 
 # Local artwork cache / thumbnails — reproducible from Discogs, no need to track
 ArtworkCache/

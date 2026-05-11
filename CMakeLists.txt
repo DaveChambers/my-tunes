@@ -57,6 +57,8 @@ target_sources(TuneList PRIVATE
     Source/TrackLibrary.h
     Source/TrackStorage.cpp
     Source/TrackStorage.h
+    Source/TuneListConfig.cpp
+    Source/TuneListConfig.h
     Source/DiscogsClient.cpp
     Source/DiscogsClient.h
     Source/SpotifyClient.cpp
@@ -108,19 +110,33 @@ target_link_libraries(TuneList PRIVATE
 # PlistBuddy. We also remove the JUCE-generated Icon.icns to avoid two
 # competing icon resources in Contents/Resources.
 set(_tunelist_icns "${CMAKE_CURRENT_SOURCE_DIR}/Assets/TuneListIcon.icns")
+set(_lsregister
+    "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister")
 if(APPLE AND EXISTS "${_tunelist_icns}")
     add_custom_command(TARGET TuneList POST_BUILD
-        COMMENT "Install TuneListIcon.icns into bundle + patch Info.plist"
+        COMMENT "Install TuneListIcon.icns into bundle + patch Info.plist + lsregister"
+        # Replace the JUCE-baked Icon.icns with our multi-size one.
         COMMAND ${CMAKE_COMMAND} -E copy "${_tunelist_icns}"
                 "$<TARGET_BUNDLE_DIR:TuneList>/Contents/Resources/TuneListIcon.icns"
         COMMAND ${CMAKE_COMMAND} -E remove -f
                 "$<TARGET_BUNDLE_DIR:TuneList>/Contents/Resources/Icon.icns"
+        # Point Info.plist at the new name. JUCE writes the key for us
+        # when ICON_BIG is passed; we no longer pass it, so use Add
+        # (which is silently a no-op if the key already exists from a
+        # previous cached configure) and follow with Set to overwrite.
+        COMMAND /usr/libexec/PlistBuddy
+                -c "Add :CFBundleIconFile string TuneListIcon"
+                "$<TARGET_BUNDLE_DIR:TuneList>/Contents/Info.plist" || true
         COMMAND /usr/libexec/PlistBuddy
                 -c "Set :CFBundleIconFile TuneListIcon"
                 "$<TARGET_BUNDLE_DIR:TuneList>/Contents/Info.plist"
-        # Touching the bundle nudges Launch Services to re-register it,
-        # which helps refresh the Dock/Finder cached icon during dev.
+        # Touch the bundle and re-register it with Launch Services so
+        # Dock / Cmd+Tab / Finder pick up the new icon without the user
+        # having to log out. -f forces a fresh registration even if the
+        # bundle was already known. Errors are tolerated because some
+        # macOS versions ship lsregister at a slightly different path.
         COMMAND touch "$<TARGET_BUNDLE_DIR:TuneList>"
+        COMMAND ${_lsregister} -f "$<TARGET_BUNDLE_DIR:TuneList>" || true
         VERBATIM)
 endif()
 
@@ -137,6 +153,9 @@ target_sources(TuneListTests PRIVATE
     Source/Tests/TrackPreviewPlayerTests.cpp
     Source/Tests/TrackStorageTests.cpp
     Source/Tests/SpotifyClientTests.cpp
+    Source/Tests/TuneListConfigTests.cpp
+    Source/TuneListConfig.cpp
+    Source/TuneListConfig.h
     Source/SpotifyClient.cpp
     Source/SpotifyClient.h
     Source/TrackFilenameParser.cpp

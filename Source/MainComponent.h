@@ -18,12 +18,13 @@
 #include "TrackListComponent.h"
 #include "TrackPreviewPlayer.h"
 #include "TrackStorage.h"
+#include "TuneListConfig.h"
 
 // Build label shown in the footer right so Dave can immediately tell
 // which app build he's running. Bump the suffix on every behaviour
 // change.
 #ifndef MYTUNES_BUILD_LABEL
- #define MYTUNES_BUILD_LABEL "v0.1 - Spotify diagnostics + real .icns"
+ #define MYTUNES_BUILD_LABEL "v0.1 - config.json + forgiving Spotify query"
 #endif
 
 class MainComponent : public juce::Component,
@@ -41,9 +42,13 @@ private:
 
     // Member ordering matters for clean shutdown:
     // controller is destroyed before library + the helpers it depends on.
+    // `config` is the single point of truth for credentials and must be
+    // constructed before the clients that take its values.
+    TuneListConfig     config;
     TrackLibrary       library;
-    SpotifyClient      spotifyClient;
-    DiscogsClient      discogsClient;
+    SpotifyClient      spotifyClient { config.getSpotifyClientId(),
+                                       config.getSpotifyClientSecret() };
+    DiscogsClient      discogsClient { config.getDiscogsUserToken() };
     ArtworkCache       artworkCache;
     LookupController   lookupController { library, spotifyClient, discogsClient, artworkCache };
     TrackPreviewPlayer previewPlayer;

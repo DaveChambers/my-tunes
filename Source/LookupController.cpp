@@ -104,6 +104,7 @@ void LookupController::run()
         SpotifyClient::Result spotifyResult;
         juce::File            spotifyArtFile;
         bool                  spotifyWins = false;
+        juce::String          fallbackReason;
 
         if (spotify.hasCredentials())
         {
@@ -122,6 +123,8 @@ void LookupController::run()
                 spotifyArtFile = artwork.ensureCachedFile (spotifyResult.imageUrl);
                 spotifyWins = spotifyArtFile.existsAsFile()
                               && spotifyArtFile.getSize() > 0;
+                if (! spotifyWins)
+                    fallbackReason = "Spotify image cache failed";
                 juce::Logger::writeToLog (
                     spotifyWins
                       ? juce::String ("Lookup[" + juce::String (idx) + "]: Spotify image cached OK")
@@ -129,6 +132,15 @@ void LookupController::run()
             }
             else
             {
+                fallbackReason = "Spotify " + TrackFile::spotifyStatusText (spotifyResult.status);
+                if (spotifyResult.status == TrackFile::SpotifyStatus::Error
+                    && spotifyResult.errorReason.isNotEmpty())
+                    fallbackReason += " (" + spotifyResult.errorReason + ")";
+                else if ((spotifyResult.status == TrackFile::SpotifyStatus::Found
+                       || spotifyResult.status == TrackFile::SpotifyStatus::Uncertain)
+                       && spotifyResult.imageUrl.isEmpty())
+                    fallbackReason = "Spotify match had no album image";
+
                 juce::Logger::writeToLog (
                     "Lookup[" + juce::String (idx) + "]: Spotify "
                     + TrackFile::spotifyStatusText (spotifyResult.status)
@@ -138,7 +150,8 @@ void LookupController::run()
         else
         {
             spotifyResult.status      = TrackFile::SpotifyStatus::CredentialsMissing;
-            spotifyResult.errorReason = "SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET not set";
+            spotifyResult.errorReason = "Spotify credentials not configured";
+            fallbackReason = "Spotify credentials missing";
             juce::Logger::writeToLog (
                 "Lookup[" + juce::String (idx)
                 + "]: Spotify creds missing -> Discogs fallback");
@@ -191,11 +204,12 @@ void LookupController::run()
         const bool spotifyWinsCopy = spotifyWins;
         const bool discogsWinsCopy = discogsWins;
         const bool discogsRanCopy  = discogsRan;
+        const auto fallbackReasonCopy = fallbackReason;
 
         juce::MessageManager::callAsync ([&libraryRef, idx, spotifyApplied,
                                           discogsApplied, spotifyPath, discogsPath,
                                           spotifyWinsCopy, discogsWinsCopy,
-                                          discogsRanCopy]
+                                          discogsRanCopy, fallbackReasonCopy]
         {
             if (idx < 0 || idx >= libraryRef.getNumTracks()) return;
             auto& tf = libraryRef.getTrack (idx);
@@ -208,7 +222,11 @@ void LookupController::run()
             tf.spotifyImageUrl    = spotifyApplied.imageUrl;
             tf.spotifyArtist      = spotifyApplied.matchedArtist;
             tf.spotifyTitle       = spotifyApplied.matchedTitle;
+            tf.spotifyAlbum       = spotifyApplied.matchedAlbum;
+            tf.spotifyQuery       = spotifyApplied.queryUsed;
             tf.spotifyErrorReason = spotifyApplied.errorReason;
+            tf.artworkFallbackReason = spotifyWinsCopy ? juce::String()
+                                                        : fallbackReasonCopy;
 
             // Discogs side — only overwrite if we actually queried it
             // (i.e. Spotify didn't win). Otherwise preserve previous

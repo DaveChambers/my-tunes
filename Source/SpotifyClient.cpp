@@ -64,9 +64,10 @@ namespace
 
 }
 
-SpotifyClient::SpotifyClient()
-    : clientId     (getClientIdFromEnvironment()),
-      clientSecret (getClientSecretFromEnvironment())
+SpotifyClient::SpotifyClient (juce::String clientIdIn,
+                                juce::String clientSecretIn)
+    : clientId     (std::move (clientIdIn)),
+      clientSecret (std::move (clientSecretIn))
 {
 }
 
@@ -127,11 +128,13 @@ bool SpotifyClient::fetchClientCredentialsToken (juce::String& outError)
     if (! stream.connect (nullptr))
     {
         outError = "token: connect failed";
+        lastAuthHttpCode = -1; // distinguish "tried, never reached server"
         juce::Logger::writeToLog ("Spotify: token request FAILED (connect)");
         return false;
     }
 
     const int httpCode = stream.getStatusCode();
+    lastAuthHttpCode = httpCode;
     if (httpCode < 200 || httpCode >= 300)
     {
         switch (httpCode)
@@ -194,8 +197,19 @@ SpotifyClient::Result SpotifyClient::lookup (const juce::String& artist,
         return r;
     }
 
+    // Plain forgiving query — "Artist Title" — proven to work against
+    // the live Spotify search endpoint where the stricter
+    //   artist:"Artist" track:"Title"
+    // syntax silently returned zero hits for several of Dave's
+    // filenames. We score candidates locally instead.
+    juce::String q;
+    if (artist.isNotEmpty()) q << artist;
+    if (artist.isNotEmpty() && title.isNotEmpty()) q << " ";
+    if (title.isNotEmpty())  q << title;
+    r.queryUsed = q;
+
     juce::Logger::writeToLog (
-        "Spotify: search artist=\"" + artist + "\" title=\"" + title + "\"");
+        "Spotify: search q=\"" + q + "\"");
 
     juce::String tokenError;
     if (! ensureAccessToken (tokenError))
@@ -206,97 +220,53 @@ SpotifyClient::Result SpotifyClient::lookup (const juce::String& artist,
         return r;
     }
 
-    // Construct the search query. Spotify's q= supports `artist:"…"`
-    // and `track:"…"` field-qualified terms. We let juce::URL escape
-    // each parameter value.
-    juce::String q;
-    if (artist.isNotEmpty()) q << "artist:\"" << artist << "\" ";
-    if (title.isNotEmpty())  q << "track:\""  << title  << "\"";
-    q = q.trim();
-
     juce::URL url (kSearchEndpoint);
     url = url.withParameter ("q",     q);
     url = url.withParameter ("type",  "track");
-    url = url.withParameter ("limit", "5");
+    url = url.withParameter ("limit", "10");
 
-    juce::String extraHeaders;
-    extraHeaders << "Authorization: Bearer " << accessToken << "\r\n";
-    extraHeaders << "Accept: application/json\r\n";
+    // Helper that issues the search request once with the current
+    // access token and returns the body + HTTP status code. Used twice:
+    // once for the initial request, and once for the 401 stale-token
+    // retry. Keeps the parse/score path below single-sourced.
+    auto runOnce = [&] (juce::String& outBody, int& outCode) -> bool
+    {
+        juce::String headers;
+        headers << "Authorization: Bearer " << accessToken << "\r\n";
+        headers << "Accept: application/json\r\n";
 
-    juce::WebInputStream stream (url, /*isPost*/ false);
-    stream.withConnectionTimeout (10000)
-          .withExtraHeaders      (extraHeaders);
+        juce::WebInputStream s (url, /*isPost*/ false);
+        s.withConnectionTimeout (10000).withExtraHeaders (headers);
+        if (! s.connect (nullptr)) { outCode = -1; return false; }
+        outCode = s.getStatusCode();
+        outBody = s.readEntireStreamAsString();
+        return true;
+    };
 
-    if (! stream.connect (nullptr))
+    juce::String body;
+    int          httpCode = 0;
+    if (! runOnce (body, httpCode))
     {
         r.status      = TrackFile::SpotifyStatus::Error;
         r.errorReason = "search: connect failed";
         return r;
     }
 
-    const int httpCode = stream.getStatusCode();
-
     // Handle a stale-token race: if the API says 401, force-refresh once
-    // and retry. (The expiry guard above usually catches this, but the
-    // server clock and ours can diverge.)
+    // and re-issue. (The expiry guard above usually catches this, but
+    // the server clock and ours can diverge.)
     if (httpCode == 401)
     {
         accessToken.clear();
         tokenExpiresAtMs = 0;
         juce::String retryErr;
-        if (ensureAccessToken (retryErr))
+        if (! ensureAccessToken (retryErr)
+            || ! runOnce (body, httpCode))
         {
-            juce::String retryHeaders;
-            retryHeaders << "Authorization: Bearer " << accessToken << "\r\n";
-            retryHeaders << "Accept: application/json\r\n";
-            juce::WebInputStream retry (url, /*isPost*/ false);
-            retry.withConnectionTimeout (10000).withExtraHeaders (retryHeaders);
-            if (retry.connect (nullptr) && retry.getStatusCode() >= 200
-                && retry.getStatusCode() < 300)
-            {
-                const auto retryBody = retry.readEntireStreamAsString();
-                const auto retryJson = juce::JSON::parse (retryBody);
-                if (retryJson.isObject())
-                {
-                    // Fall through to the parse block by overwriting
-                    // the variables we use below.
-                    const auto tracks = retryJson.getProperty ("tracks", juce::var());
-                    if (! tracks.isObject())
-                    {
-                        r.status      = TrackFile::SpotifyStatus::Error;
-                        r.errorReason = "search JSON unexpected shape";
-                        return r;
-                    }
-                    const auto items = tracks.getProperty ("items", juce::var());
-                    if (! items.isArray() || items.size() == 0)
-                    {
-                        r.status = TrackFile::SpotifyStatus::NotFound;
-                        return r;
-                    }
-                    const auto first = items[0];
-                    r.trackId     = varAsString (first.getProperty ("id", {}));
-                    r.externalUrl = varAsString (
-                                       first.getProperty ("external_urls", juce::var())
-                                            .getProperty ("spotify", {}));
-                    const auto artistArr = first.getProperty ("artists", juce::var());
-                    if (artistArr.isArray() && artistArr.size() > 0)
-                        r.matchedArtist = varAsString (artistArr[0].getProperty ("name", {}));
-                    r.matchedTitle = varAsString (first.getProperty ("name", {}));
-                    const auto album = first.getProperty ("album", juce::var());
-                    r.albumId  = varAsString (album.getProperty ("id", {}));
-                    r.imageUrl = pickAlbumImageUrl (album.getProperty ("images", juce::var()));
-
-                    r.status = (artist.isNotEmpty()
-                                 && r.matchedArtist.containsIgnoreCase (artist))
-                                 ? TrackFile::SpotifyStatus::Found
-                                 : TrackFile::SpotifyStatus::Uncertain;
-                    return r;
-                }
-            }
+            r.status      = TrackFile::SpotifyStatus::Error;
+            r.errorReason = "HTTP 401 (token refresh failed)";
+            return r;
         }
-        r.status      = TrackFile::SpotifyStatus::Error;
-        r.errorReason = "HTTP 401 (token refresh failed)";
-        return r;
     }
 
     if (httpCode < 200 || httpCode >= 300)
@@ -312,7 +282,6 @@ SpotifyClient::Result SpotifyClient::lookup (const juce::String& artist,
         return r;
     }
 
-    const auto body = stream.readEntireStreamAsString();
     const auto json = juce::JSON::parse (body);
     if (! json.isObject())
     {
@@ -329,35 +298,73 @@ SpotifyClient::Result SpotifyClient::lookup (const juce::String& artist,
         return r;
     }
     const auto items = tracks.getProperty ("items", juce::var());
+    r.rawResultCount = items.isArray() ? items.size() : 0;
     if (! items.isArray() || items.size() == 0)
     {
         r.status = TrackFile::SpotifyStatus::NotFound;
-        juce::Logger::writeToLog ("Spotify: 0 results");
+        juce::Logger::writeToLog ("Spotify: 0 results for q=\"" + q + "\"");
         return r;
     }
 
     juce::Logger::writeToLog ("Spotify: " + juce::String (items.size())
-                              + " result(s)");
+                              + " result(s) for q=\"" + q + "\"");
 
-    // Spotify's relevance ranking is already pretty good; we take the
-    // first hit. We could rank by artist-substring match but Dave's
-    // sample is small and Spotify's relevance is already good enough.
-    const auto first = items[0];
+    // Local scoring. Spotify's own relevance ranking ranks the first
+    // result high, but Dave's filenames (Mo-T, Phil Kieran, parenthesised
+    // remix tags, etc.) sometimes push the "right" track down a slot. We
+    // re-rank to prefer:
+    //   - artist substring match  (weight 4)
+    //   - title substring match   (weight 3)
+    //   - has an album image      (weight 2)  (required for "win")
+    //   - original Spotify rank   (small tiebreak)
+    int   bestScore = -1;
+    int   bestIndex = -1;
+    for (int i = 0; i < items.size(); ++i)
+    {
+        const auto& item = items[i];
+        if (! item.isObject()) continue;
 
-    r.trackId     = varAsString (first.getProperty ("id", {}));
+        juce::String candArtist;
+        const auto artistArr = item.getProperty ("artists", juce::var());
+        if (artistArr.isArray() && artistArr.size() > 0)
+            candArtist = varAsString (artistArr[0].getProperty ("name", {}));
+        const auto candTitle = varAsString (item.getProperty ("name", {}));
+        const auto album     = item.getProperty ("album", juce::var());
+        const auto candImage = pickAlbumImageUrl (album.getProperty ("images", juce::var()));
+
+        int score = 0;
+        if (artist.isNotEmpty() && candArtist.containsIgnoreCase (artist)) score += 4;
+        if (title.isNotEmpty()  && candTitle .containsIgnoreCase (title))  score += 3;
+        if (candImage.isNotEmpty())                                        score += 2;
+        score -= i; // earlier ranks slightly preferred among ties
+
+        if (score > bestScore)
+        {
+            bestScore = score;
+            bestIndex = i;
+        }
+    }
+
+    if (bestIndex < 0)
+        bestIndex = 0;
+
+    const auto chosen = items[bestIndex];
+
+    r.trackId     = varAsString (chosen.getProperty ("id", {}));
     r.externalUrl = varAsString (
-                       first.getProperty ("external_urls", juce::var())
-                            .getProperty ("spotify", {}));
+                       chosen.getProperty ("external_urls", juce::var())
+                             .getProperty ("spotify", {}));
 
-    const auto artistArr = first.getProperty ("artists", juce::var());
+    const auto artistArr = chosen.getProperty ("artists", juce::var());
     if (artistArr.isArray() && artistArr.size() > 0)
         r.matchedArtist = varAsString (artistArr[0].getProperty ("name", {}));
 
-    r.matchedTitle = varAsString (first.getProperty ("name", {}));
+    r.matchedTitle = varAsString (chosen.getProperty ("name", {}));
 
-    const auto album = first.getProperty ("album", juce::var());
-    r.albumId  = varAsString (album.getProperty ("id", {}));
-    r.imageUrl = pickAlbumImageUrl (album.getProperty ("images", juce::var()));
+    const auto album = chosen.getProperty ("album", juce::var());
+    r.albumId       = varAsString (album.getProperty ("id",   {}));
+    r.matchedAlbum  = varAsString (album.getProperty ("name", {}));
+    r.imageUrl      = pickAlbumImageUrl (album.getProperty ("images", juce::var()));
 
     // Found if the matched artist string contains the input artist
     // (case-insensitive), Uncertain otherwise. Mirrors DiscogsClient.
@@ -367,7 +374,11 @@ SpotifyClient::Result SpotifyClient::lookup (const juce::String& artist,
         r.status = TrackFile::SpotifyStatus::Uncertain;
 
     juce::Logger::writeToLog (
-        "Spotify: pick \"" + r.matchedArtist + " - " + r.matchedTitle + "\""
+        "Spotify: pick #" + juce::String (bestIndex)
+        + " \"" + r.matchedArtist + " - " + r.matchedTitle + "\""
+        + (r.matchedAlbum.isNotEmpty() ? juce::String (" [")
+                                          + r.matchedAlbum + "]"
+                                        : juce::String())
         + (r.imageUrl.isEmpty() ? " (no image)" : " (image OK)")
         + " status=" + TrackFile::spotifyStatusText (r.status));
 

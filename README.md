@@ -72,20 +72,40 @@ The detail panel for each track shows an **Artwork source** row (`Spotify` / `Di
 
 The toolbar **Re-lookup** button force-refreshes every track. Use it after first granting Spotify credentials to promote old Discogs covers to Spotify ones.
 
-### Setup
+### Setup — two ways to supply credentials
+
+TuneList resolves each credential from **config.json first, environment variable second**. Use whichever you prefer; mixing is fine.
+
+**Option A — local config file (recommended for normal Finder/Dock launches):**
+
+```bash
+mkdir -p "$HOME/Library/Application Support/TuneList"
+cat > "$HOME/Library/Application Support/TuneList/config.json" <<'JSON'
+{
+  "spotifyClientId":     "your_client_id_here",
+  "spotifyClientSecret": "your_client_secret_here",
+  "discogsUserToken":    "your_discogs_token_here"
+}
+JSON
+chmod 600 "$HOME/Library/Application Support/TuneList/config.json"
+```
+
+This is the robust path because macOS GUI launches from Finder/Dock don't inherit the shell's exported env vars. The file lives **outside** the repo and is gitignored even if a copy ends up in the working tree.
+
+**Option B — environment variables (handy when launching from Terminal):**
 
 ```bash
 export SPOTIFY_CLIENT_ID="your_client_id_here"
 export SPOTIFY_CLIENT_SECRET="your_client_secret_here"
-export DISCOGS_USER_TOKEN="your_discogs_token_here"   # optional but recommended
+export DISCOGS_USER_TOKEN="your_discogs_token_here"
 open "build/TuneList_artefacts/TuneList.app"
 ```
 
 - Get Spotify credentials from <https://developer.spotify.com/dashboard> → "Create app". You do **not** need a redirect URI for TuneList — it only does the Client Credentials flow against the public catalogue.
 - Get a Discogs token at <https://www.discogs.com/settings/developers> → "Generate new token".
-- **Never commit any of these.** TuneList reads all three strictly from the environment — there is no on-disk config file for them.
+- **Never commit any of these.** TuneList reads them from `config.json` or env vars only; there is no embedded copy.
 
-The app still launches fine without any of these set; it just won't fetch artwork (Spotify) or will rely on unauthenticated Discogs (rate-limited).
+The app still launches fine without any of these set; it just won't fetch Spotify artwork (and Discogs is rate-limited without its token). The toolbar's diagnostics row will say `Spotify: missing credentials` when nothing is found.
 
 The Discogs User-Agent is `TuneList/0.1 +https://makeelectronicsound.com`. Requests are paced at ~1.6/sec, well under Discogs' 60/min cap.
 

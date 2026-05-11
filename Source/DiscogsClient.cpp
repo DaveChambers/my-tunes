@@ -21,8 +21,8 @@ namespace
     }
 }
 
-DiscogsClient::DiscogsClient()
-    : token (getTokenFromEnvironment())
+DiscogsClient::DiscogsClient (juce::String userToken)
+    : token (std::move (userToken))
 {
 }
 
