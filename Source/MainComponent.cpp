@@ -69,9 +69,9 @@ MainComponent::MainComponent()
     // Plain ASCII only. Earlier builds used a curly U+2019 apostrophe
     // ("Discogs’") which renders as "Discogsâ€™" on some Mac setups
     // when the JUCE label paints under a non-UTF-8 font path.
-    attributionLabel.setText ("Data provided by Discogs.   "
-                              "This application uses the Discogs API but is not "
-                              "affiliated with, sponsored or endorsed by Discogs.",
+    attributionLabel.setText ("Data and artwork may be provided by Spotify and Discogs.   "
+                              "This application is not affiliated with, sponsored or "
+                              "endorsed by Spotify or Discogs.",
                               juce::dontSendNotification);
     attributionLabel.setJustificationType (juce::Justification::centred);
     attributionLabel.setFont   (juce::Font (juce::FontOptions ("Helvetica", 11.0f, 0)));
@@ -92,9 +92,9 @@ MainComponent::MainComponent()
         updateStatusLabel();
     };
     lookupController.onTrackProcessed = [this] (int idx,
-                                                 const DiscogsClient::Result& r)
+                                                 const LookupController::TrackOutcome& o)
     {
-        onTrackLookupProcessed (idx, r);
+        onTrackLookupProcessed (idx, o);
     };
     lookupController.onFinished = [this]
     {
@@ -249,36 +249,59 @@ void MainComponent::startAutoLookup()
     isLookingUp = true;
     lookupDone  = 0;
     lookupTotal = (int) indices.size();
-    resetDiscogsCounters();
+    resetLookupCounters();
     updateButtonsEnabled();
     updateStatusLabel();
     updateDiagnosticsLabel();
 
-    lookupController.startLookup (indices);
+    lookupController.startLookup (indices, /*forceRelookup*/ false);
 }
 
 void MainComponent::runManualLookup()
 {
-    // Same path as auto, just driven by the toolbar button. Useful for
-    // re-running after a connection / token change.
-    startAutoLookup();
+    // Re-lookup button: force-refresh artwork for every track. With
+    // Spotify creds present this is how Dave promotes an old Discogs-
+    // sourced cover to the new Spotify cover.
+    if (lookupController.isRunning() || library.getNumTracks() == 0)
+        return;
+
+    std::vector<int> indices;
+    const int n = library.getNumTracks();
+    indices.reserve ((std::size_t) n);
+    for (int i = 0; i < n; ++i)
+        indices.push_back (i);
+
+    isLookingUp = true;
+    lookupDone  = 0;
+    lookupTotal = (int) indices.size();
+    resetLookupCounters();
+    updateButtonsEnabled();
+    updateStatusLabel();
+    updateDiagnosticsLabel();
+
+    lookupController.startLookup (indices, /*forceRelookup*/ true);
 }
 
 void MainComponent::onTrackLookupProcessed (int /*trackIndex*/,
-                                             const DiscogsClient::Result& r)
+                                             const LookupController::TrackOutcome& o)
 {
-    using S = TrackFile::DiscogsStatus;
-    switch (r.status)
+    switch (o.artworkSource)
     {
-        case S::Found:      ++countFound;     break;
-        case S::Uncertain:  ++countUncertain; break;
-        case S::NotFound:   ++countNotFound;  break;
-        case S::Error:      ++countError;     break;
-        default:            break;
+        case TrackFile::ArtworkSource::Spotify: ++countSpotifyArt; break;
+        case TrackFile::ArtworkSource::Discogs: ++countDiscogsArt; break;
+        case TrackFile::ArtworkSource::None:    ++countNoArtwork;  break;
     }
 
-    if (r.errorReason.isNotEmpty())
-        lastDiscogsError = r.errorReason;
+    if (o.spotifyStatus == TrackFile::SpotifyStatus::Error)
+        ++countSpotifyError;
+    if (o.discogsStatus == TrackFile::DiscogsStatus::Error)
+        ++countDiscogsError;
+
+    if (o.spotifyError.isNotEmpty()
+        && o.spotifyStatus != TrackFile::SpotifyStatus::CredentialsMissing)
+        lastSpotifyError = o.spotifyError;
+    if (o.discogsError.isNotEmpty())
+        lastDiscogsError = o.discogsError;
 
     updateDiagnosticsLabel();
 }
@@ -392,9 +415,11 @@ void MainComponent::recomputeBoardCounts()
         emojiBoard.setBoardCount (i, library.countTracksWithTag (boards[(std::size_t) i].emoji));
 }
 
-void MainComponent::resetDiscogsCounters()
+void MainComponent::resetLookupCounters()
 {
-    countFound = countUncertain = countNotFound = countError = 0;
+    countSpotifyArt = countDiscogsArt = countNoArtwork = 0;
+    countSpotifyError = countDiscogsError = 0;
+    lastSpotifyError.clear();
     lastDiscogsError.clear();
 }
 
@@ -436,16 +461,14 @@ void MainComponent::updateStatusLabel()
 
     if (isLookingUp && lookupTotal > 0)
     {
-        text << "   |   Discogs lookup " << lookupDone << "/" << lookupTotal;
+        text << "   |   Artwork lookup " << lookupDone << "/" << lookupTotal;
     }
-    else if (countFound + countUncertain + countNotFound + countError > 0)
+    else if (countSpotifyArt + countDiscogsArt + countNoArtwork > 0)
     {
-        text << "   |   Discogs complete: "
-             << countFound     << " found, "
-             << countUncertain << " uncertain, "
-             << countNotFound  << " not found";
-        if (countError > 0)
-            text << ", " << countError << " error";
+        text << "   |   Artwork: "
+             << countSpotifyArt << " Spotify, "
+             << countDiscogsArt << " Discogs, "
+             << countNoArtwork  << " none";
     }
     else if (activeBoardIndex >= 0)
     {
@@ -461,19 +484,24 @@ void MainComponent::updateStatusLabel()
 void MainComponent::updateDiagnosticsLabel()
 {
     juce::String text;
-    text << "Discogs: "
+    text << "Spotify: "
+         << (spotifyClient.hasCredentials() ? "creds" : "no creds")
+         << "   |   Discogs: "
          << (discogsClient.hasToken() ? "token" : "no token (unauth)")
          << "   |   ";
 
     if (isLookingUp)
         text << "lookup running";
-    else if (lookupTotal == 0 && (countFound + countUncertain + countNotFound + countError) == 0)
+    else if (lookupTotal == 0
+             && (countSpotifyArt + countDiscogsArt + countNoArtwork) == 0)
         text << "lookup idle";
     else
         text << "lookup complete";
 
+    if (lastSpotifyError.isNotEmpty())
+        text << "   |   Spotify err: " << lastSpotifyError;
     if (lastDiscogsError.isNotEmpty())
-        text << "   |   last error: " << lastDiscogsError;
+        text << "   |   Discogs err: " << lastDiscogsError;
 
     diagnosticsLabel.setText (text, juce::dontSendNotification);
 }

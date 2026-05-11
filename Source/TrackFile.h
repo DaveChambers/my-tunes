@@ -45,8 +45,49 @@ struct TrackFile
     juce::String  discogsArtist;
     juce::String  discogsTitle;
     juce::String  discogsCoverUrl;
-    juce::File    cachedArtworkPath;       // if a thumbnail was downloaded
     juce::String  discogsErrorReason;      // populated when status is Error
+
+    // --- Spotify lookup state ---------------------------------------------
+    // Spotify is preferred for artwork; Discogs is the fallback. The
+    // status enum mirrors DiscogsStatus so the UI rendering code can
+    // treat both uniformly. CredentialsMissing is a separate, non-Error
+    // value so the diagnostic line can hint "set SPOTIFY_CLIENT_ID..."
+    // without colouring it red.
+    enum class SpotifyStatus
+    {
+        NotSearched,
+        Searching,
+        Found,
+        Uncertain,
+        NotFound,
+        CredentialsMissing,
+        Error
+    };
+
+    SpotifyStatus spotifyStatus = SpotifyStatus::NotSearched;
+    juce::String  spotifyTrackId;
+    juce::String  spotifyAlbumId;
+    juce::String  spotifyExternalUrl;     // open.spotify.com/track/<id>
+    juce::String  spotifyImageUrl;         // album image we picked
+    juce::String  spotifyArtist;
+    juce::String  spotifyTitle;
+    juce::String  spotifyErrorReason;
+
+    // --- Which source produced the cover that's currently cached -----------
+    // Set when LookupController commits a successful lookup. If a Spotify
+    // match has a usable image, artworkSource is Spotify and we do NOT
+    // fall through to Discogs. If Spotify has no match/no image/no creds,
+    // Discogs is tried; on success artworkSource is Discogs. Otherwise
+    // None and the no-cover placeholder is shown.
+    enum class ArtworkSource
+    {
+        None,
+        Spotify,
+        Discogs
+    };
+
+    ArtworkSource artworkSource = ArtworkSource::None;
+    juce::File    cachedArtworkPath;       // owned by whichever source won
 
     // Plain ASCII status text for the table column / detail panel. We
     // deliberately avoid the em-dash / "smart quote" range — earlier
@@ -65,5 +106,31 @@ struct TrackFile
             case DiscogsStatus::Error:       return "Error";
         }
         return "Not searched";
+    }
+
+    static juce::String spotifyStatusText (SpotifyStatus s) noexcept
+    {
+        switch (s)
+        {
+            case SpotifyStatus::NotSearched:        return "Not searched";
+            case SpotifyStatus::Searching:          return "Searching";
+            case SpotifyStatus::Found:              return "Found";
+            case SpotifyStatus::Uncertain:          return "Uncertain";
+            case SpotifyStatus::NotFound:           return "Not found";
+            case SpotifyStatus::CredentialsMissing: return "No credentials";
+            case SpotifyStatus::Error:              return "Error";
+        }
+        return "Not searched";
+    }
+
+    static juce::String artworkSourceText (ArtworkSource s) noexcept
+    {
+        switch (s)
+        {
+            case ArtworkSource::None:    return "None";
+            case ArtworkSource::Spotify: return "Spotify";
+            case ArtworkSource::Discogs: return "Discogs";
+        }
+        return "None";
     }
 };

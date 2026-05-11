@@ -10,6 +10,7 @@
 #include "EmojiTagBoardComponent.h"
 #include "LookupController.h"
 #include "MiniPlayerComponent.h"
+#include "SpotifyClient.h"
 #include "TrackDetailComponent.h"
 #include "TrackFile.h"
 #include "TrackGridComponent.h"
@@ -22,7 +23,7 @@
 // which app build he's running. Bump the suffix on every behaviour
 // change.
 #ifndef MYTUNES_BUILD_LABEL
- #define MYTUNES_BUILD_LABEL "v0.1 - TuneList rename + resume fix"
+ #define MYTUNES_BUILD_LABEL "v0.1 - Spotify-first artwork"
 #endif
 
 class MainComponent : public juce::Component,
@@ -41,9 +42,10 @@ private:
     // Member ordering matters for clean shutdown:
     // controller is destroyed before library + the helpers it depends on.
     TrackLibrary       library;
+    SpotifyClient      spotifyClient;
     DiscogsClient      discogsClient;
     ArtworkCache       artworkCache;
-    LookupController   lookupController { library, discogsClient, artworkCache };
+    LookupController   lookupController { library, spotifyClient, discogsClient, artworkCache };
     TrackPreviewPlayer previewPlayer;
     TrackStorage       storage;
 
@@ -69,14 +71,19 @@ private:
     std::vector<int> visibleIndices;
     int              selectedTrackIndex = -1;
 
-    // Discogs / lookup state, all maintained on the message thread.
+    // Artwork lookup state, all maintained on the message thread.
+    // Counters reflect the FINAL artwork source chosen per track —
+    // Spotify-first with Discogs fallback — so they answer the question
+    // "where did Dave's covers actually come from this batch".
     bool             isLookingUp       = false;
     int              lookupDone        = 0;
     int              lookupTotal       = 0;
-    int              countFound        = 0;
-    int              countUncertain    = 0;
-    int              countNotFound     = 0;
-    int              countError        = 0;
+    int              countSpotifyArt   = 0;   // artworkSource == Spotify
+    int              countDiscogsArt   = 0;   // artworkSource == Discogs
+    int              countNoArtwork    = 0;   // artworkSource == None
+    int              countSpotifyError = 0;
+    int              countDiscogsError = 0;
+    juce::String     lastSpotifyError;
     juce::String     lastDiscogsError;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
@@ -94,8 +101,9 @@ private:
 
     void recomputeVisibleIndices();
     void recomputeBoardCounts();
-    void resetDiscogsCounters();
-    void onTrackLookupProcessed (int trackIndex, const DiscogsClient::Result&);
+    void resetLookupCounters();
+    void onTrackLookupProcessed (int trackIndex,
+                                  const LookupController::TrackOutcome&);
 
     void togglePlayback (int trackIndex);
 

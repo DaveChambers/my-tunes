@@ -70,6 +70,17 @@ private:
         juce::String  discogsCoverUrl;
         juce::String  discogsThumbUrl;
         juce::String  discogsErrorReason;
+
+        TrackFile::SpotifyStatus spotifyStatus = TrackFile::SpotifyStatus::NotSearched;
+        juce::String  spotifyArtist;
+        juce::String  spotifyTitle;
+        juce::String  spotifyTrackId;
+        juce::String  spotifyAlbumId;
+        juce::String  spotifyExternalUrl;
+        juce::String  spotifyImageUrl;
+        juce::String  spotifyErrorReason;
+
+        TrackFile::ArtworkSource artworkSource = TrackFile::ArtworkSource::None;
         juce::String  cachedArtworkPath;
     };
 
@@ -80,6 +91,10 @@ private:
 
     static juce::String discogsStatusToString (TrackFile::DiscogsStatus);
     static TrackFile::DiscogsStatus discogsStatusFromString (const juce::String&);
+    static juce::String spotifyStatusToString (TrackFile::SpotifyStatus);
+    static TrackFile::SpotifyStatus spotifyStatusFromString (const juce::String&);
+    static juce::String artworkSourceToString (TrackFile::ArtworkSource);
+    static TrackFile::ArtworkSource artworkSourceFromString (const juce::String&);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TrackStorage)
 };

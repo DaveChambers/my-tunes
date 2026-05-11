@@ -56,6 +56,8 @@ target_sources(TuneList PRIVATE
     Source/TrackStorage.h
     Source/DiscogsClient.cpp
     Source/DiscogsClient.h
+    Source/SpotifyClient.cpp
+    Source/SpotifyClient.h
     Source/ArtworkCache.cpp
     Source/ArtworkCache.h
     Source/LookupController.cpp
@@ -109,6 +111,9 @@ target_sources(TuneListTests PRIVATE
     Source/Tests/TrackLibraryTaggingTests.cpp
     Source/Tests/TrackPreviewPlayerTests.cpp
     Source/Tests/TrackStorageTests.cpp
+    Source/Tests/SpotifyClientTests.cpp
+    Source/SpotifyClient.cpp
+    Source/SpotifyClient.h
     Source/TrackFilenameParser.cpp
     Source/TrackFilenameParser.h
     Source/TrackFile.h

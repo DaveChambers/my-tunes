@@ -26,10 +26,14 @@ public:
 
 private:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
+    void onOpenSpotifyClicked();
+    void refreshOpenSpotifyButton();
 
     TrackLibrary&       library;
     TrackPreviewPlayer& player;
     int                 selectedIndex = -1;
+
+    juce::TextButton    openSpotifyButton { "Open Spotify" };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TrackDetailComponent)
 };

@@ -9,51 +9,80 @@
 
 #include "ArtworkCache.h"
 #include "DiscogsClient.h"
+#include "SpotifyClient.h"
 #include "TrackFile.h"
 
 class TrackLibrary;
 
-// Drives Discogs lookups (and the matching cover-art downloads) for a
-// set of track indices on a single background thread, dispatching every
-// state change back onto the JUCE message thread.
+// Drives artwork lookups for a set of track indices on a single
+// background thread, dispatching every state change back onto the JUCE
+// message thread.
+//
+// Source policy (Spotify-first):
+//   1. If Spotify credentials are present, try Spotify search.
+//      A "good" Spotify match is one that returned a usable album
+//      image URL AND we managed to cache the bytes locally.
+//   2. If Spotify produced a good match, that wins — Discogs is NOT
+//      consulted; artworkSource is set to Spotify.
+//   3. Otherwise (no creds / no match / error / no image / cache
+//      download failed) we fall back to Discogs.
+//   4. Discogs success → artworkSource is Discogs.
+//   5. Both fail → artworkSource stays None and the no-cover placeholder
+//      is shown.
 //
 // Threading contract:
-//   - start() snapshots the (artist, title) pairs on the message thread
-//     so the worker never reads from TrackLibrary directly.
+//   - startLookup() snapshots the (artist, title) pairs on the message
+//     thread so the worker never reads TrackLibrary directly.
 //   - All TrackLibrary writes happen via juce::MessageManager::callAsync
 //     on the message thread, which keeps tracks[] races out of scope.
-//   - The worker sleeps `kInterRequestPauseMs` between requests so we
-//     stay well under Discogs' 60-req/min rate limit (auth or not).
+//   - The worker sleeps `kInterRequestPauseMs` between requests to be
+//     polite to both APIs.
 //
 // Caching:
-//   - Tracks already in DiscogsStatus::Found with a cached artwork file
-//     are skipped on subsequent lookups (no re-query, no re-download).
+//   - Tracks that already have artworkSource != None AND a cached file
+//     on disk are skipped on regular lookups. Pass forceRelookup=true
+//     to ignore the cache (used by the Re-lookup toolbar button).
 class LookupController : public juce::Thread
 {
 public:
     LookupController (TrackLibrary& library,
+                      SpotifyClient& spotify,
                       DiscogsClient& discogs,
                       ArtworkCache&  artwork);
     ~LookupController() override;
+
+    // Summary of what happened on one track. Carried via onTrackProcessed
+    // so MainComponent can accumulate counters and the most recent error
+    // string for the diagnostics label.
+    struct TrackOutcome
+    {
+        TrackFile::ArtworkSource artworkSource = TrackFile::ArtworkSource::None;
+        TrackFile::SpotifyStatus spotifyStatus = TrackFile::SpotifyStatus::NotSearched;
+        TrackFile::DiscogsStatus discogsStatus = TrackFile::DiscogsStatus::NotSearched;
+        juce::String             spotifyError;
+        juce::String             discogsError;
+    };
 
     // (processed, total) — fires on the message thread after each task.
     std::function<void (int processed, int total)> onProgress;
 
     // Fires on the message thread once each track's result is ready.
-    // Carries the per-track Discogs result so MainComponent can
-    // accumulate a summary (found/uncertain/not found/error counts +
-    // most recent error string) for the status label.
     std::function<void (int trackIndex,
-                        const DiscogsClient::Result& r)> onTrackProcessed;
+                        const TrackOutcome& outcome)> onTrackProcessed;
 
     // Fires on the message thread when the queue drains (or is cancelled).
     std::function<void()>                          onFinished;
 
     // Kick off a lookup of the given library indices. Ignored if the
     // worker is already running. The library snapshot happens here
-    // (i.e. before startThread()) so the worker only sees immutable
-    // copies of the artist/title pairs.
-    void startLookup (const std::vector<int>& libraryIndices);
+    // (before startThread()) so the worker only sees immutable copies
+    // of the artist/title pairs.
+    //
+    // forceRelookup=true bypasses the "already has artwork" skip — the
+    // Re-lookup toolbar button uses this so Dave can refresh artwork
+    // from Spotify after first granting credentials.
+    void startLookup (const std::vector<int>& libraryIndices,
+                      bool forceRelookup = false);
 
     bool isRunning() const noexcept { return isThreadRunning(); }
 
@@ -74,6 +103,7 @@ private:
     static constexpr int kInterRequestPauseMs = 600; // ~1.6 req/sec
 
     TrackLibrary&  library;
+    SpotifyClient& spotify;
     DiscogsClient& discogs;
     ArtworkCache&  artwork;
 

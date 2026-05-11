@@ -95,6 +95,101 @@ public:
             tempFile.deleteFile();
         }
 
+        beginTest ("save + load roundtrips Spotify fields + artworkSource");
+        {
+            const auto tempFile = juce::File::createTempFile (".json");
+
+            TrackLibrary lib;
+            lib.appendTrack (makeTrack ("/tunes/spot.mp3", "S Artist", "S Title"));
+            {
+                auto& t = lib.getTrack (0);
+                t.spotifyStatus      = TrackFile::SpotifyStatus::Found;
+                t.spotifyTrackId     = "abc123";
+                t.spotifyAlbumId     = "alb456";
+                t.spotifyExternalUrl = "https://open.spotify.com/track/abc123";
+                t.spotifyImageUrl    = "https://i.scdn.co/image/foo";
+                t.spotifyArtist      = "Spotify Artist";
+                t.spotifyTitle       = "Spotify Title";
+                t.artworkSource      = TrackFile::ArtworkSource::Spotify;
+                t.discogsStatus      = TrackFile::DiscogsStatus::NotSearched;
+            }
+
+            {
+                TrackStorage saver (tempFile);
+                expect (saver.snapshotAndSave (lib));
+            }
+
+            TrackLibrary lib2;
+            lib2.appendTrack (makeTrack ("/tunes/spot.mp3", "S Artist", "S Title"));
+
+            TrackStorage loader (tempFile);
+            expect (loader.load());
+            loader.applySavedFieldsToLibrary (lib2);
+
+            const auto& t = lib2.getTrack (0);
+            expect       (t.spotifyStatus == TrackFile::SpotifyStatus::Found);
+            expectEquals (t.spotifyTrackId,     juce::String ("abc123"));
+            expectEquals (t.spotifyAlbumId,     juce::String ("alb456"));
+            expectEquals (t.spotifyExternalUrl,
+                          juce::String ("https://open.spotify.com/track/abc123"));
+            expectEquals (t.spotifyImageUrl,
+                          juce::String ("https://i.scdn.co/image/foo"));
+            expect       (t.artworkSource == TrackFile::ArtworkSource::Spotify);
+
+            tempFile.deleteFile();
+        }
+
+        beginTest ("back-compat: old JSON with cached art + Discogs Found "
+                   "infers artworkSource=Discogs on load");
+        {
+            const auto tempFile = juce::File::createTempFile (".json");
+
+            // Hand-craft an "older" JSON file with no artworkSource key.
+            const juce::String oldJson = R"({
+                "version": 1,
+                "folder":  "/tunes",
+                "tracks":  [
+                    { "path": "/tunes/old.mp3",
+                      "filename": "old.mp3",
+                      "tags": [],
+                      "priority": 0,
+                      "notes": "",
+                      "discogsStatus":    "Found",
+                      "discogsArtist":    "X",
+                      "discogsTitle":     "Y",
+                      "discogsReleaseId": "1",
+                      "discogsCoverUrl":  "https://example.com/x.jpg",
+                      "cachedArtworkPath": ")"
+                + juce::File::createTempFile (".jpg").getFullPathName() +
+                R"(" }
+                ]
+            })";
+
+            // Make sure the cached art file we reference actually exists,
+            // since applySavedFieldsToLibrary only restores cachedArtworkPath
+            // if the file is present on disk.
+            const auto json = juce::JSON::parse (oldJson);
+            const auto cachedPath = json.getProperty ("tracks", juce::var())[0]
+                                       .getProperty ("cachedArtworkPath", juce::var())
+                                       .toString();
+            juce::File (cachedPath).create();
+
+            tempFile.replaceWithText (oldJson);
+
+            TrackStorage loader (tempFile);
+            expect (loader.load());
+
+            TrackLibrary lib;
+            lib.appendTrack (makeTrack ("/tunes/old.mp3", "X", "Y"));
+            loader.applySavedFieldsToLibrary (lib);
+
+            const auto& t = lib.getTrack (0);
+            expect (t.artworkSource == TrackFile::ArtworkSource::Discogs);
+
+            juce::File (cachedPath).deleteFile();
+            tempFile.deleteFile();
+        }
+
         beginTest ("load on a missing file is a no-op (returns false)");
         {
             const auto tempFile = juce::File::getCurrentWorkingDirectory()

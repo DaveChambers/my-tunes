@@ -60,38 +60,50 @@ A small console test runner is built alongside the app:
 
 Currently exercises the filename parser against the example filenames from Dave's tune folder plus a handful of edge cases (commas + internal hyphen in artist, parens-heavy titles, explicit `Foo - Larse Remix` versions, malformed inputs, supported-extensions sanity).
 
-## Discogs cover lookup
+## Cover-art lookup (Spotify-first, Discogs fallback)
 
-Click the **Lookup Covers** button in the toolbar to fetch cover art and basic release metadata from the [Discogs API](https://www.discogs.com/developers/) for the loaded tracks. The lookup runs on a background thread; the toolbar status updates as it goes (`Looking up 3/20`).
+After a folder scan the app fetches cover art for the sample tracks. Sources are tried in this order, per track:
 
-A user token is **optional but recommended** — without one, Discogs is more aggressively rate-limited.
+1. **Spotify** — requires `SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET` env vars. Uses the Client Credentials flow (no browser login). If Spotify returns a track match with a usable album image, that image wins and Discogs is *not* queried for this track.
+2. **Discogs** — used as fallback when Spotify has no credentials, no match, no image, or errored. Optional `DISCOGS_USER_TOKEN` env var unlocks the higher rate limit.
+3. If neither produces art, the no-cover placeholder is shown.
 
-To set a token before launching the app:
+The detail panel for each track shows an **Artwork source** row (`Spotify` / `Discogs` / `None`) and, when Spotify matched, an **Open Spotify** button that launches the track page in your browser.
+
+The toolbar **Re-lookup** button force-refreshes every track. Use it after first granting Spotify credentials to promote old Discogs covers to Spotify ones.
+
+### Setup
 
 ```bash
-export DISCOGS_USER_TOKEN="your-token-here"
+export SPOTIFY_CLIENT_ID="your_client_id_here"
+export SPOTIFY_CLIENT_SECRET="your_client_secret_here"
+export DISCOGS_USER_TOKEN="your_discogs_token_here"   # optional but recommended
 open "build/TuneList_artefacts/TuneList.app"
 ```
 
-Get a token at <https://www.discogs.com/settings/developers> → "Generate new token". **Never commit it.** The app reads it from the environment, never from a tracked file.
+- Get Spotify credentials from <https://developer.spotify.com/dashboard> → "Create app". You do **not** need a redirect URI for TuneList — it only does the Client Credentials flow against the public catalogue.
+- Get a Discogs token at <https://www.discogs.com/settings/developers> → "Generate new token".
+- **Never commit any of these.** TuneList reads all three strictly from the environment — there is no on-disk config file for them.
 
-The app sets the User-Agent
-```
-TuneList/0.1 +https://makeelectronicsound.com
-```
-and paces requests at roughly 1.6/sec, well under Discogs' 60/min cap. The footer of the window shows the required attribution: *"Data provided by Discogs. This application uses Discogs' API but is not affiliated with, sponsored or endorsed by Discogs."*
+The app still launches fine without any of these set; it just won't fetch artwork (Spotify) or will rely on unauthenticated Discogs (rate-limited).
 
-### What the lookup does
-- Searches by `artist` + `track` against `database/search`
-- Picks the first result that carries a thumbnail when possible
-- Marks the track **Found** if Discogs' result string contains the input artist, **Uncertain** otherwise
-- Downloads the thumbnail and caches it under `~/Library/Application Support/My Tunes/ArtworkCache/`
-- The grid view paints the cached thumbnail; the detail panel shows a larger version of the same image
+The Discogs User-Agent is `TuneList/0.1 +https://makeelectronicsound.com`. Requests are paced at ~1.6/sec, well under Discogs' 60/min cap.
+
+The footer shows the combined attribution: *"Data and artwork may be provided by Spotify and Discogs. This application is not affiliated with, sponsored or endorsed by Spotify or Discogs."*
+
+### Where artwork is cached
+
+Both Spotify and Discogs images go through the same disk cache (content-addressed by URL hash):
+
+```
+~/Library/Application Support/My Tunes/ArtworkCache/<hash>.<ext>
+```
+
+No artwork is stored inside the repo. The Application Support data path is **deliberately kept as "My Tunes"** even though the app was renamed to TuneList — so existing user state (tags, priority, notes, cached art) migrates with no copy step.
 
 ### What the lookup does NOT do (yet)
 - It only processes the **20-track sample** (Dave's deliberate cap on v0.1).
-- It doesn't yet skip tracks already in `Found` state across app restarts — Discogs metadata is in-memory only, so a fresh app launch starts everyone back at `Not searched`. Cached image files on disk persist; once `TrackStorage` is wired, the metadata side will too.
-- No master vs release disambiguation, no fuzzy matching, no per-track manual override.
+- No master vs release disambiguation (Discogs), no fuzzy matching, no per-track manual override.
 
 ## Library / state location
 
@@ -118,9 +130,9 @@ Cached cover-art thumbnails:
 - Five hardcoded emoji boards in the left sidebar (🙂 Rave / fun, 🌅 Sunset / chill, 🔥 Peak time, 🕺 Old school house, ⭐ Must play). Click a board to filter the list/grid; click the active board again to clear.
 - List view (table) and Grid view (cards). Toggle in the toolbar.
 - Right-click on a list row to toggle emoji tags via a popup menu.
-- Detail panel for the selected track (filename, parsed fields, tags, Discogs status, cover art when available).
-- Discogs lookup via the **Lookup Covers** button — rate-limited, optional token, cached thumbnails.
-- Discogs attribution footer in the UI.
+- Detail panel for the selected track (filename, parsed fields, tags, Spotify + Discogs status, cover art when available, Open Spotify button when Spotify matched).
+- **Spotify-first artwork lookup with Discogs fallback** — auto after scan, force-refresh via the **Re-lookup** toolbar button.
+- Spotify + Discogs attribution footer in the UI.
 
 **What's scaffolded but not wired**
 - Drag-and-drop tagging of tracks onto emoji boards (right-click is the current path).

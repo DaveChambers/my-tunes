@@ -9,6 +9,10 @@ TrackDetailComponent::TrackDetailComponent (TrackLibrary& l, TrackPreviewPlayer&
 {
     library.addChangeListener (this);
     player .addChangeListener (this);
+
+    addChildComponent (openSpotifyButton);
+    openSpotifyButton.onClick = [this] { onOpenSpotifyClicked(); };
+    refreshOpenSpotifyButton();
 }
 
 TrackDetailComponent::~TrackDetailComponent()
@@ -19,16 +23,43 @@ TrackDetailComponent::~TrackDetailComponent()
 
 void TrackDetailComponent::changeListenerCallback (juce::ChangeBroadcaster*)
 {
+    refreshOpenSpotifyButton();
     repaint();
 }
 
-void TrackDetailComponent::resized() {}
+void TrackDetailComponent::resized()
+{
+    // Button sits in a 28px strip at the bottom of the panel. It's
+    // only visible when the current track has a Spotify external URL.
+    auto bounds = getLocalBounds().reduced (12);
+    auto buttonRow = bounds.removeFromBottom (28);
+    openSpotifyButton.setBounds (buttonRow.removeFromLeft (140));
+}
 
 void TrackDetailComponent::setSelectedTrackIndex (int index)
 {
     if (selectedIndex == index) return;
     selectedIndex = index;
+    refreshOpenSpotifyButton();
     repaint();
+}
+
+void TrackDetailComponent::onOpenSpotifyClicked()
+{
+    if (selectedIndex < 0 || selectedIndex >= library.getNumTracks())
+        return;
+    const auto& tf = library.getTrack (selectedIndex);
+    if (tf.spotifyExternalUrl.isEmpty()) return;
+    juce::URL (tf.spotifyExternalUrl).launchInDefaultBrowser();
+}
+
+void TrackDetailComponent::refreshOpenSpotifyButton()
+{
+    const bool show = selectedIndex >= 0
+                       && selectedIndex < library.getNumTracks()
+                       && library.getTrack (selectedIndex)
+                                  .spotifyExternalUrl.isNotEmpty();
+    openSpotifyButton.setVisible (show);
 }
 
 namespace
@@ -122,13 +153,31 @@ void TrackDetailComponent::paint (juce::Graphics& g)
     drawLabelValue (g, bounds, "Notes",
                     tf.notes.isEmpty() ? juce::String ("(empty)") : tf.notes);
 
+    drawLabelValue (g, bounds, "Artwork source",
+                    TrackFile::artworkSourceText (tf.artworkSource));
+
+    drawLabelValue (g, bounds, "Spotify",
+                    TrackFile::spotifyStatusText (tf.spotifyStatus));
+    if (tf.spotifyStatus == TrackFile::SpotifyStatus::Found
+        || tf.spotifyStatus == TrackFile::SpotifyStatus::Uncertain)
+    {
+        if (tf.spotifyArtist.isNotEmpty() || tf.spotifyTitle.isNotEmpty())
+            drawLabelValue (g, bounds, "Spotify match",
+                            tf.spotifyArtist + "  |  " + tf.spotifyTitle);
+    }
+    if (tf.spotifyStatus == TrackFile::SpotifyStatus::Error
+        && tf.spotifyErrorReason.isNotEmpty())
+    {
+        drawLabelValue (g, bounds, "Spotify error", tf.spotifyErrorReason);
+    }
+
     drawLabelValue (g, bounds, "Discogs",
                     TrackFile::discogsStatusText (tf.discogsStatus));
 
     if (tf.discogsStatus == TrackFile::DiscogsStatus::Found)
     {
         if (tf.discogsArtist.isNotEmpty() || tf.discogsTitle.isNotEmpty())
-            drawLabelValue (g, bounds, "Matched",
+            drawLabelValue (g, bounds, "Discogs match",
                             tf.discogsArtist + "  |  " + tf.discogsTitle);
         if (tf.discogsReleaseId.isNotEmpty())
             drawLabelValue (g, bounds, "Release ID", tf.discogsReleaseId);
