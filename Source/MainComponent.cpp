@@ -15,6 +15,8 @@ MainComponent::MainComponent()
     juce::Logger::writeToLog (
         "TuneList: artwork cache = "
         + ArtworkCache::getCacheFolder().getFullPathName());
+    juce::Logger::writeToLog (
+        "TuneList: metadata endpoint = " + metadataClient.getEndpoint());
 
     library.addChangeListener (this);
 
@@ -306,6 +308,9 @@ void MainComponent::onTrackLookupProcessed (int /*trackIndex*/,
         case TrackFile::ArtworkSource::None:    ++countNoArtwork;  break;
     }
 
+    if (o.rejectedByLocalScoring)
+        ++countRejected;
+
     if (o.proxySource == MetadataProxyClient::Source::Error)
     {
         ++countLookupError;
@@ -428,7 +433,7 @@ void MainComponent::recomputeBoardCounts()
 void MainComponent::resetLookupCounters()
 {
     countSpotifyArt = countDiscogsArt = countNoArtwork = 0;
-    countLookupError = 0;
+    countRejected = countLookupError = 0;
     lastLookupError.clear();
 }
 
@@ -492,30 +497,30 @@ void MainComponent::updateStatusLabel()
 
 void MainComponent::updateDiagnosticsLabel()
 {
-    // Diagnostics row, now driven entirely by the metadata-service
-    // outcome. Spotify/Discogs credentials are held server-side, so
-    // there's nothing local for the user to configure.
+    // User-facing artwork summary. Deliberately does NOT mention the
+    // Cloud Run endpoint or any other backend internals — those live
+    // in the startup log only.
     juce::String text;
-
-    text << "Metadata service: " << metadataClient.getEndpoint();
-    text << "   |   ";
 
     if (isLookingUp)
     {
-        text << "looking up " << lookupDone << "/" << lookupTotal;
+        text << "Artwork: looking up " << lookupDone << "/" << lookupTotal;
     }
     else if (lookupTotal == 0
              && (countSpotifyArt + countDiscogsArt + countNoArtwork) == 0)
     {
-        text << "idle";
+        text << "Artwork: idle";
     }
     else
     {
-        text << "found "         << countSpotifyArt << " Spotify, "
-             <<                       countDiscogsArt << " Discogs, "
-             <<                       countNoArtwork  << " none";
+        text << "Artwork: "
+             << countSpotifyArt << " Spotify, "
+             << countDiscogsArt << " Discogs, "
+             << countNoArtwork  << " none";
+        if (countRejected > 0)
+            text << ", " << countRejected << " rejected";
         if (countLookupError > 0)
-            text << ", errors " << countLookupError;
+            text << ", " << countLookupError << " errors";
     }
 
     if (lastLookupError.isNotEmpty())

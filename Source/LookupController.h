@@ -57,10 +57,18 @@ public:
     // string for the diagnostics label.
     struct TrackOutcome
     {
-        TrackFile::ArtworkSource artworkSource = TrackFile::ArtworkSource::None;
-        MetadataProxyClient::Source proxySource = MetadataProxyClient::Source::None;
+        TrackFile::ArtworkSource    artworkSource = TrackFile::ArtworkSource::None;
+        MetadataProxyClient::Source proxySource   = MetadataProxyClient::Source::None;
         juce::String                proxyError;
         int                         httpCode = 0;
+
+        // True when the proxy returned a Spotify/Discogs result but
+        // our local scoring decided the artist/title were too
+        // unrelated to the cleaned filename input. Distinguishes
+        // "no artwork because the proxy had nothing" (proxySource ==
+        // None) from "no artwork because the proxy's hit was wrong"
+        // (artworkSource == None && rejectedByLocalScoring == true).
+        bool                        rejectedByLocalScoring = false;
     };
 
     // (processed, total) — fires on the message thread after each task.

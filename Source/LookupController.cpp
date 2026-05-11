@@ -1,5 +1,6 @@
 #include "LookupController.h"
 
+#include "LookupMatching.h"
 #include "TrackLibrary.h"
 
 LookupController::LookupController (TrackLibrary& l,
@@ -80,9 +81,22 @@ void LookupController::run()
             break;
 
         const int idx = task.index;
+
+        // Clean the parsed filename fields BEFORE asking the proxy. The
+        // backend will happily return a "best" Spotify hit for any
+        // string we send it (including "You Girls.wav~~"), so removing
+        // file-extension + trailing-junk noise is purely about not
+        // poisoning Spotify's relevance ranking with garbage.
+        const auto cleanedArtist = LookupMatching::cleanForLookup (task.artist);
+        const auto cleanedTitle  = LookupMatching::cleanForLookup (task.title);
+
         juce::Logger::writeToLog (
             "Lookup[" + juce::String (idx) + "]: artist=\""
-            + task.artist + "\" title=\"" + task.title + "\"");
+            + task.artist + "\" title=\"" + task.title + "\""
+            + ((cleanedArtist != task.artist || cleanedTitle != task.title)
+                ? juce::String (" -> cleaned=\"") + cleanedArtist
+                    + "\" / \"" + cleanedTitle + "\""
+                : juce::String()));
 
         // 1) Mark Searching on the message thread.
         juce::MessageManager::callAsync ([&libraryRef, idx]
@@ -97,12 +111,37 @@ void LookupController::run()
             libraryRef.sendChangeMessage();
         });
 
-        // 2) Call the proxy.
-        const auto result = metadata.lookup (task.artist, task.title);
+        // 2) Call the proxy with the cleaned strings.
+        const auto result = metadata.lookup (cleanedArtist, cleanedTitle);
 
-        // 3) Cache the artwork if the proxy gave us a usable image.
+        // 2b) Score the returned artist/title against the cleaned
+        //     input so we can reject obvious mismatches BEFORE caching
+        //     any artwork. The proxy's "best" hit is sometimes nonsense
+        //     for obscure tracks (Nush "You Girls", Phonat And Super
+        //     Mal "Pixelated") and we'd rather show no art than wrong
+        //     art for them.
+        const auto score = LookupMatching::scoreMatch (
+                              cleanedArtist, cleanedTitle,
+                              result.artist, result.title);
+
+        const bool proxyOk = (result.source == MetadataProxyClient::Source::Spotify
+                            || result.source == MetadataProxyClient::Source::Discogs);
+        const bool scoreAccepted = (score.confidence != LookupMatching::Confidence::Rejected);
+        const bool accept = proxyOk && scoreAccepted;
+
+        juce::Logger::writeToLog (
+            juce::String ("Lookup[") + juce::String (idx) + "]: scoring "
+            + "input=\"" + cleanedArtist + " / " + cleanedTitle
+            + "\" vs returned=\"" + result.artist + " / " + result.title
+            + "\" -> " + LookupMatching::toString (score.confidence)
+            + (score.reason.isNotEmpty() ? juce::String (" (")
+                                             + score.reason + ")"
+                                          : juce::String()));
+
+        // 3) Cache the artwork only if the proxy supplied a usable
+        //    image AND the local scoring accepted the match.
         juce::File artFile;
-        if (result.imageUrl.isNotEmpty())
+        if (accept && result.imageUrl.isNotEmpty())
             artFile = artwork.ensureCachedFile (result.imageUrl);
 
         const bool artworkCached = artFile.existsAsFile() && artFile.getSize() > 0;
@@ -111,14 +150,19 @@ void LookupController::run()
         const auto resultCopy   = result;
         const auto artFileCopy  = artFile;
         const bool artworkCachedCopy = artworkCached;
+        const bool acceptedCopy = accept;
+        const juce::String scoreLabel  = LookupMatching::toString (score.confidence);
+        const juce::String scoreReason = score.reason;
 
         juce::MessageManager::callAsync ([&libraryRef, idx, resultCopy,
-                                          artFileCopy, artworkCachedCopy]
+                                          artFileCopy, artworkCachedCopy,
+                                          acceptedCopy, scoreLabel, scoreReason]
         {
             if (idx < 0 || idx >= libraryRef.getNumTracks()) return;
             auto& tf = libraryRef.getTrack (idx);
 
             tf.metadataQuery        = resultCopy.query;
+            tf.matchConfidence      = scoreLabel;
             tf.artworkFallbackReason.clear();
 
             // Map the proxy's source into TrackFile state.
@@ -127,12 +171,14 @@ void LookupController::run()
             {
                 case PS::Spotify:
                 {
-                    tf.artworkSource      = artworkCachedCopy
-                                              ? TrackFile::ArtworkSource::Spotify
-                                              : TrackFile::ArtworkSource::None;
-                    tf.cachedArtworkPath  = artworkCachedCopy ? artFileCopy : juce::File();
+                    const bool useArt = acceptedCopy && artworkCachedCopy;
+                    tf.artworkSource      = useArt ? TrackFile::ArtworkSource::Spotify
+                                                    : TrackFile::ArtworkSource::None;
+                    tf.cachedArtworkPath  = useArt ? artFileCopy : juce::File();
 
-                    tf.spotifyStatus      = TrackFile::SpotifyStatus::Found;
+                    tf.spotifyStatus      = acceptedCopy
+                                              ? TrackFile::SpotifyStatus::Found
+                                              : TrackFile::SpotifyStatus::Uncertain;
                     tf.spotifyArtist      = resultCopy.artist;
                     tf.spotifyTitle       = resultCopy.title;
                     tf.spotifyAlbum       = resultCopy.album;
@@ -145,18 +191,24 @@ void LookupController::run()
                     tf.discogsStatus      = TrackFile::DiscogsStatus::NotSearched;
                     tf.discogsErrorReason.clear();
 
-                    if (! artworkCachedCopy)
+                    if (! acceptedCopy)
+                        tf.artworkFallbackReason = scoreReason.isNotEmpty()
+                                                     ? scoreReason
+                                                     : juce::String ("Spotify match rejected by local scoring");
+                    else if (! artworkCachedCopy)
                         tf.artworkFallbackReason = "Spotify image cache failed";
                     break;
                 }
                 case PS::Discogs:
                 {
-                    tf.artworkSource      = artworkCachedCopy
-                                              ? TrackFile::ArtworkSource::Discogs
-                                              : TrackFile::ArtworkSource::None;
-                    tf.cachedArtworkPath  = artworkCachedCopy ? artFileCopy : juce::File();
+                    const bool useArt = acceptedCopy && artworkCachedCopy;
+                    tf.artworkSource      = useArt ? TrackFile::ArtworkSource::Discogs
+                                                    : TrackFile::ArtworkSource::None;
+                    tf.cachedArtworkPath  = useArt ? artFileCopy : juce::File();
 
-                    tf.discogsStatus      = TrackFile::DiscogsStatus::Found;
+                    tf.discogsStatus      = acceptedCopy
+                                              ? TrackFile::DiscogsStatus::Found
+                                              : TrackFile::DiscogsStatus::Uncertain;
                     tf.discogsArtist      = resultCopy.artist;
                     tf.discogsTitle       = resultCopy.title;
                     tf.discogsReleaseId   = resultCopy.discogsReleaseId;
@@ -167,7 +219,11 @@ void LookupController::run()
                     tf.spotifyStatus      = TrackFile::SpotifyStatus::NotSearched;
                     tf.spotifyErrorReason.clear();
 
-                    if (! artworkCachedCopy)
+                    if (! acceptedCopy)
+                        tf.artworkFallbackReason = scoreReason.isNotEmpty()
+                                                     ? scoreReason
+                                                     : juce::String ("Discogs match rejected by local scoring");
+                    else if (! artworkCachedCopy)
                         tf.artworkFallbackReason = "Discogs image cache failed";
                     break;
                 }
@@ -205,10 +261,11 @@ void LookupController::run()
             outcome.proxySource = result.source;
             outcome.proxyError  = result.errorReason;
             outcome.httpCode    = result.httpCode;
+            outcome.rejectedByLocalScoring = ! scoreAccepted && proxyOk;
 
-            if (result.source == MetadataProxyClient::Source::Spotify && artworkCached)
+            if (accept && result.source == MetadataProxyClient::Source::Spotify && artworkCached)
                 outcome.artworkSource = TrackFile::ArtworkSource::Spotify;
-            else if (result.source == MetadataProxyClient::Source::Discogs && artworkCached)
+            else if (accept && result.source == MetadataProxyClient::Source::Discogs && artworkCached)
                 outcome.artworkSource = TrackFile::ArtworkSource::Discogs;
             else
                 outcome.artworkSource = TrackFile::ArtworkSource::None;

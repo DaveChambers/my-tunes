@@ -21,7 +21,7 @@
 // which app build he's running. Bump the suffix on every behaviour
 // change.
 #ifndef MYTUNES_BUILD_LABEL
- #define MYTUNES_BUILD_LABEL "v0.1 - artwork via metadata service"
+ #define MYTUNES_BUILD_LABEL "v0.1 - reject wrong-artwork matches"
 #endif
 
 class MainComponent : public juce::Component,
@@ -79,6 +79,7 @@ private:
     int              countSpotifyArt = 0;
     int              countDiscogsArt = 0;
     int              countNoArtwork  = 0;
+    int              countRejected   = 0;
     int              countLookupError = 0;
     juce::String     lastLookupError;
 

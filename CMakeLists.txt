@@ -69,6 +69,8 @@ target_sources(TuneList PRIVATE
     Source/ArtworkCache.h
     Source/LookupController.cpp
     Source/LookupController.h
+    Source/LookupMatching.cpp
+    Source/LookupMatching.h
     Source/TrackPreviewPlayer.cpp
     Source/TrackPreviewPlayer.h
     Source/MiniPlayerComponent.cpp
@@ -157,12 +159,15 @@ target_sources(TuneListTests PRIVATE
     Source/Tests/SpotifyClientTests.cpp
     Source/Tests/TuneListConfigTests.cpp
     Source/Tests/MetadataProxyClientTests.cpp
+    Source/Tests/LookupMatchingTests.cpp
     Source/TuneListConfig.cpp
     Source/TuneListConfig.h
     Source/SpotifyClient.cpp
     Source/SpotifyClient.h
     Source/MetadataProxyClient.cpp
     Source/MetadataProxyClient.h
+    Source/LookupMatching.cpp
+    Source/LookupMatching.h
     Source/TrackFilenameParser.cpp
     Source/TrackFilenameParser.h
     Source/TrackFile.h

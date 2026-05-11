@@ -87,6 +87,13 @@ struct TrackFile
     // exactly what was searched for.
     juce::String  metadataQuery;
 
+    // Match confidence assigned by the desktop client's local scoring
+    // pass — "High" / "Medium" / "Rejected" / empty. Rejected means
+    // the proxy returned a result but its artist/title was too
+    // unrelated to the cleaned filename input, so the desktop refused
+    // to paint the artwork. Empty string until a lookup has run.
+    juce::String  matchConfidence;
+
     // --- Which source produced the cover that's currently cached -----------
     // Set when LookupController commits a successful lookup. If a Spotify
     // match has a usable image, artworkSource is Spotify and we do NOT

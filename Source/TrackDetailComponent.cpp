@@ -178,6 +178,8 @@ void TrackDetailComponent::paint (juce::Graphics& g)
 
     drawLabelValue (g, bounds, "Artwork source",
                     TrackFile::artworkSourceText (tf.artworkSource));
+    if (tf.matchConfidence.isNotEmpty())
+        drawLabelValue (g, bounds, "Match confidence", tf.matchConfidence);
     if (tf.metadataQuery.isNotEmpty())
         drawLabelValue (g, bounds, "Lookup query", tf.metadataQuery);
 
