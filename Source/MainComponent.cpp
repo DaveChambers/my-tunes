@@ -224,16 +224,20 @@ void MainComponent::onChooseFolderClicked()
         if (folder == juce::File{} || ! folder.isDirectory())
             return;
 
-        library.scanFolder (folder, kSampleSize);
-        // Re-apply any previously-saved tags / priority / notes / Discogs
-        // metadata to the freshly-scanned tracks before the lookup
-        // starts (so already-known matches don't get re-queried).
+        library.scanFolder (folder);
+        // Re-apply any previously-saved tags / priority / notes /
+        // Discogs / Spotify metadata to the freshly-scanned tracks
+        // before the lookup starts (so already-cached covers don't
+        // get re-queried).
         storage.applySavedFieldsToLibrary (library);
         library.sendChangeMessage();
         scanButton.setEnabled (true);
 
-        // Auto-fire Discogs lookup for the new sample. The user shouldn't
-        // have to find a button to make this happen.
+        // Auto-fire the metadata lookup for the freshly-scanned set.
+        // LookupController already (a) runs on a background thread,
+        // (b) skips tracks that already have a cached cover, and
+        // (c) paces requests so a folder with thousands of files
+        // doesn't hammer the proxy.
         startAutoLookup();
     });
 }
@@ -243,7 +247,7 @@ void MainComponent::runScan()
     if (! library.getFolder().isDirectory())
         return;
 
-    library.scanFolder (library.getFolder(), kSampleSize);
+    library.scanFolder (library.getFolder());
     storage.applySavedFieldsToLibrary (library);
     library.sendChangeMessage();
     startAutoLookup();
@@ -470,8 +474,7 @@ void MainComponent::updateStatusLabel()
         return;
     }
 
-    text << "Sample mode: " << kSampleSize
-         << "   |   "        << n << " loaded";
+    text << "Loaded " << n << " track" << (n == 1 ? juce::String() : juce::String ("s"));
 
     if (isLookingUp && lookupTotal > 0)
     {

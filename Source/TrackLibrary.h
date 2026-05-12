@@ -11,19 +11,22 @@
 // that mutates the library's tracks (scan, tag toggle, future priority/
 // notes edits) calls sendChangeMessage(); listeners refresh.
 //
-// First-version contract:
-//   - holds the most recently scanned folder + the list of tracks we
-//     parsed from it
-//   - sample-of-20: scanFolder() may keep at most `sampleSize` tracks
+// Contract:
+//   - holds the most recently scanned folder + the parsed tracks
+//   - scanFolder() loads every supported file by default. The
+//     `sampleSize` parameter is kept as a soft cap for tests; pass
+//     0 or omit it to scan everything.
 class TrackLibrary : public juce::ChangeBroadcaster
 {
 public:
     TrackLibrary();
     ~TrackLibrary() override;
 
-    // Scan `folder` for supported audio files, parse filenames, keep
-    // up to `sampleSize` tracks. Broadcasts on completion.
-    void scanFolder (const juce::File& folder, int sampleSize = 20);
+    // Scan `folder` for supported audio files, parse filenames, and
+    // load every matching file. Broadcasts on completion. If
+    // `sampleSize` > 0, scanning stops after that many tracks
+    // (mainly used by tests to keep fixtures bounded).
+    void scanFolder (const juce::File& folder, int sampleSize = 0);
 
     int                            getNumTracks()           const noexcept { return (int) tracks.size(); }
     const std::vector<TrackFile>&  getAllTracks()           const noexcept { return tracks; }

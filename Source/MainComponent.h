@@ -21,7 +21,7 @@
 // which app build he's running. Bump the suffix on every behaviour
 // change.
 #ifndef MYTUNES_BUILD_LABEL
- #define MYTUNES_BUILD_LABEL "v0.1 - grid highlight playing card"
+ #define MYTUNES_BUILD_LABEL "v0.1 - load all tracks (no sample cap)"
 #endif
 
 class MainComponent : public juce::Component,
@@ -110,8 +110,6 @@ private:
     void updateButtonsEnabled();
 
     static juce::File getDefaultStartFolder();
-
-    static constexpr int kSampleSize = 20;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

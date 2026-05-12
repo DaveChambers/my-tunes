@@ -14,8 +14,8 @@ void TrackLibrary::scanFolder (const juce::File& f, int sampleSize)
     {
         const auto& exts = TrackFilenameParser::supportedExtensions();
 
-        // Walk recursively. Stop once we've hit the sample limit —
-        // first-version contract is "at most sampleSize tracks".
+        // Walk recursively. sampleSize > 0 caps the load (mainly for
+        // tests); sampleSize <= 0 means "load everything".
         for (const auto& entry : juce::RangedDirectoryIterator (f,
                                                                 /*recursive*/ true,
                                                                 "*",
@@ -30,7 +30,7 @@ void TrackLibrary::scanFolder (const juce::File& f, int sampleSize)
             TrackFilenameParser::parse (tf, file);
             tracks.push_back (std::move (tf));
 
-            if ((int) tracks.size() >= sampleSize)
+            if (sampleSize > 0 && (int) tracks.size() >= sampleSize)
                 break;
         }
     }

@@ -94,8 +94,8 @@ The footer shows the combined attribution: *"Data and artwork may be provided by
 The repository still contains `SpotifyClient` and `DiscogsClient` source files plus a `TuneListConfig` credential loader. These are no longer wired into the running app — `LookupController` exclusively uses `MetadataProxyClient`. The files are kept compiled (so the unit tests covering URL-encoding, credential resolution, and JSON parsing remain green) but the bundled app will never read `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` / `DISCOGS_USER_TOKEN` during normal use. Drop them entirely whenever the team is comfortable.
 
 ### What the lookup does NOT do (yet)
-- It only processes the **20-track sample** (Dave's deliberate cap on v0.1).
-- No fuzzy matching, no per-track manual override.
+- No fuzzy matching beyond the desktop's token-overlap scoring, and no per-track manual override.
+- Lookup is paced — one request at a time, with a small inter-request wait — so very large folders fill in artwork progressively rather than all at once.
 
 ## Library / state location
 
@@ -113,17 +113,15 @@ Cached cover-art thumbnails:
 
 ## Current limitations (v0.1)
 
-**Sample-only mode.** To avoid hammering the Discogs API while we're getting the basics right, the app processes **at most 20 tracks** from any chosen folder. The status bar shows `Sample mode: 20 tracks   |   N loaded` to make this obvious. This will be relaxed once rate-limiting and caching are in place.
-
 **What works in v0.1**
 - Resizable Mac window with the toolbar / sidebar / list / detail / footer layout.
-- Choose Folder → recursive scan → parse filenames → list view, capped at 20 tracks.
+- Choose Folder → recursive scan → parse filenames → list view loads every supported audio file (no sample cap).
 - Filename parser tolerant of commas and internal hyphens in artist names (e.g. `Mo-T`), parenthesised remix info inside titles, and explicit `Title - Version` separators.
 - Five hardcoded emoji boards in the left sidebar (🙂 Rave / fun, 🌅 Sunset / chill, 🔥 Peak time, 🕺 Old school house, ⭐ Must play). Click a board to filter the list/grid; click the active board again to clear.
 - List view (table) and Grid view (cards). Toggle in the toolbar.
 - Right-click on a list row to toggle emoji tags via a popup menu.
 - Detail panel for the selected track (filename, parsed fields, tags, Spotify + Discogs status, cover art when available, Open Spotify button when Spotify matched).
-- **Spotify-first artwork lookup with Discogs fallback** — auto after scan, force-refresh via the **Re-lookup** toolbar button.
+- **Spotify-first artwork lookup with Discogs fallback via the TuneList metadata service** — auto after scan, force-refresh via the **Re-lookup** toolbar button.
 - Spotify + Discogs attribution footer in the UI.
 
 **What's scaffolded but not wired**
@@ -134,7 +132,7 @@ Cached cover-art thumbnails:
 ## Future work
 
 - Plugin / VST3 / AU build — out of scope for v0.1. The core types (`TrackFile`, `TrackFilenameParser`, `TrackLibrary`, `TrackStorage`, `DiscogsClient`, `ArtworkCache`) are deliberately UI-independent so the same engine can later back a plugin without rewriting.
-- Removing the 20-track sample cap once the Discogs path is rate-limited and caches survive restarts.
+- Background folder scan (current scan runs on the message thread; fine for thousands of files, but a giant SMB-mounted folder will briefly block the UI while filenames are parsed).
 - Editable emoji boards (rename, change emoji, reorder).
 - Music import beyond a single folder (multiple roots, watched folders).
 - Audio preview / waveform.
