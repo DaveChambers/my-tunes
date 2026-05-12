@@ -223,7 +223,7 @@ MainComponent::MainComponent()
     searchClearButton.setEnabled (false);
 
     addAndMakeVisible (diagnosticsLabel);
-    diagnosticsLabel.setJustificationType (juce::Justification::centredRight);
+    diagnosticsLabel.setJustificationType (juce::Justification::centredLeft);
     diagnosticsLabel.setColour (juce::Label::textColourId,
                                 juce::Colours::lightgrey.withAlpha (0.85f));
     diagnosticsLabel.setFont   (juce::Font (juce::FontOptions ("Helvetica", 11.0f, 0)));
@@ -350,8 +350,10 @@ void MainComponent::resized()
     // needs more vertical room than the previous one-row version.
     miniPlayer.setBounds (bounds.removeFromBottom (66));
 
-    // Top toolbar (44 tall)
+    // Top toolbar (44 tall). Left side: action buttons + folder path.
+    // Right side: search + view toggle + status.
     auto toolbar = bounds.removeFromTop (44).reduced (12, 6);
+
     chooseFolderButton.setBounds  (toolbar.removeFromLeft (140));
     toolbar.removeFromLeft (8);
     scanButton.setBounds          (toolbar.removeFromLeft (80));
@@ -361,25 +363,38 @@ void MainComponent::resized()
     cancelButton.setBounds        (toolbar.removeFromLeft (80));
     toolbar.removeFromLeft (12);
 
-    statusLabel.setBounds         (toolbar.removeFromRight (320));
+    // Right-anchored: status label (narrower than before so search
+    // has room), then the view toggle pair, then the search field.
+    statusLabel.setBounds         (toolbar.removeFromRight (260));
     toolbar.removeFromRight (8);
 
     auto toggleArea = toolbar.removeFromRight (130);
     viewGridButton.setBounds (toggleArea.removeFromRight (60));
     viewListButton.setBounds (toggleArea.removeFromRight (60));
+    toolbar.removeFromRight (12);
+
+    // Search slot: ~260 px wide normally, but shrinks gracefully on
+    // narrow windows so the folder label always has at least 40 px
+    // of breathing room before the search field collapses. The "x"
+    // clear button always reserves 22 px on the right of the field.
+    const int desiredSearchWidth = 260;
+    const int folderMinWidth     = 40;
+    const int searchWidth = juce::jmin (desiredSearchWidth,
+                                         juce::jmax (60,
+                                                     toolbar.getWidth() - folderMinWidth - 8));
+    auto searchSlot = toolbar.removeFromRight (searchWidth);
+    searchClearButton.setBounds (searchSlot.removeFromRight (22));
+    searchSlot.removeFromRight (4);
+    searchField.setBounds       (searchSlot);
     toolbar.removeFromRight (8);
 
     folderLabel.setBounds         (toolbar);
 
-    // Diagnostics row (24 tall, just below the toolbar)
-    // Search field on the left, diagnostics text on the right.
-    auto diagRow = bounds.removeFromTop (24).reduced (12, 1);
-    auto searchSlot = diagRow.removeFromLeft (320);
-    searchClearButton.setBounds (searchSlot.removeFromRight (22).reduced (0, 1));
-    searchSlot.removeFromRight (4);
-    searchField.setBounds       (searchSlot);
-    diagRow.removeFromLeft (12);
-    diagnosticsLabel.setBounds  (diagRow);
+    // Diagnostics row (22 tall, just below the toolbar). The search
+    // field used to share this row; with search moved up, the row
+    // hosts only the artwork/lookup diagnostics now.
+    auto diagRow = bounds.removeFromTop (22);
+    diagnosticsLabel.setBounds (diagRow.reduced (12, 2));
 
     // Main area
     bounds.removeFromTop (4);
