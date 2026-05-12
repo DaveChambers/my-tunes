@@ -122,6 +122,42 @@ public:
         //  exercised when the app runs: a tag toggle triggers a
         //  changeListenerCallback on each view + on the MainComponent,
         //  which Dave will see immediately on right-click.)
+
+        beginTest ("bulk-load API: clear + appendBatchSilently scales to many tracks");
+        {
+            TrackLibrary lib;
+
+            // Start with one track + folder set, simulating a previous scan.
+            lib.appendTrack (makeTrack ("Old", "Track"));
+            lib.toggleEmojiTag (0, kRave);
+            expect (lib.getNumTracks() == 1);
+
+            // clear() resets the library + folder, and broadcasts once.
+            const juce::File newFolder ("/tunes/new");
+            lib.clear (newFolder);
+            expect (lib.getNumTracks() == 0);
+            expect (lib.getFolder() == newFolder);
+
+            // appendBatchSilently moves a batch in without broadcasting
+            // per-call. Two batches of 2,500 each = 5,000 tracks.
+            for (int batchIdx = 0; batchIdx < 2; ++batchIdx)
+            {
+                std::vector<TrackFile> batch;
+                batch.reserve (2500);
+                for (int i = 0; i < 2500; ++i)
+                    batch.push_back (makeTrack (
+                        "Artist " + juce::String (batchIdx * 2500 + i),
+                        "Title "  + juce::String (batchIdx * 2500 + i)));
+                lib.appendBatchSilently (std::move (batch));
+            }
+            expect (lib.getNumTracks() == 5000);
+
+            // Indices are stable and contiguous.
+            expectEquals (lib.getTrack (0).artist,    juce::String ("Artist 0"));
+            expectEquals (lib.getTrack (2499).artist, juce::String ("Artist 2499"));
+            expectEquals (lib.getTrack (2500).artist, juce::String ("Artist 2500"));
+            expectEquals (lib.getTrack (4999).artist, juce::String ("Artist 4999"));
+        }
     }
 };
 

@@ -1,5 +1,122 @@
 #include "MainComponent.h"
 
+#include "TrackFilenameParser.h"
+
+// =============================================================================
+// FolderScanner: a juce::Thread that walks a directory recursively, parses
+// filenames, and posts batches of parsed TrackFile objects back to the
+// message thread. The owning MainComponent stops it cleanly in its dtor.
+// =============================================================================
+class MainComponent::FolderScanner : public juce::Thread
+{
+public:
+    FolderScanner (MainComponent& o)
+        : juce::Thread ("TuneList-Scan"), owner (o) {}
+
+    ~FolderScanner() override
+    {
+        stopThread (4000);
+    }
+
+    void scan (juce::File folder)
+    {
+        // Cancel anything in flight before starting a new scan.
+        stopThread (4000);
+        targetFolder = std::move (folder);
+        startThread();
+    }
+
+private:
+    void run() override
+    {
+        static constexpr std::size_t kBatchSize = 200;
+
+        const auto& exts = TrackFilenameParser::supportedExtensions();
+        std::vector<TrackFile> batch;
+        batch.reserve (kBatchSize);
+        int found = 0;
+
+        for (const auto& entry : juce::RangedDirectoryIterator (
+                                     targetFolder,
+                                     /*recursive*/  true,
+                                     "*",
+                                     juce::File::findFiles))
+        {
+            if (threadShouldExit())
+                return;
+
+            const auto file = entry.getFile();
+            const auto ext  = file.getFileExtension().substring (1).toLowerCase();
+            if (! exts.contains (ext))
+                continue;
+
+            TrackFile tf;
+            TrackFilenameParser::parse (tf, file);
+            batch.push_back (std::move (tf));
+            ++found;
+
+            if (batch.size() >= kBatchSize)
+            {
+                postBatch (std::move (batch), found, /*done=*/ false);
+                batch = {};
+                batch.reserve (kBatchSize);
+            }
+        }
+
+        if (! threadShouldExit())
+            postBatch (std::move (batch), found, /*done=*/ true);
+    }
+
+    void postBatch (std::vector<TrackFile> batch, int totalFound, bool done)
+    {
+        // Move-capture the batch into the lambda. owner outlives the
+        // lambda (its destructor stops us first) so the reference
+        // capture is safe.
+        auto& ownerRef = owner;
+        juce::MessageManager::callAsync (
+            [&ownerRef, batch = std::move (batch), totalFound, done]() mutable
+            {
+                ownerRef.onScanBatchReady (std::move (batch), totalFound, done);
+            });
+    }
+
+    MainComponent& owner;
+    juce::File     targetFolder;
+};
+
+// =============================================================================
+// SaveDebouncer: coalesces TrackStorage saves. A library broadcast (re)starts
+// the timer; the actual snapshotAndSave fires once after kSaveDelayMs of
+// quiet. Without this an 8 000-track JSON gets rewritten on every per-track
+// lookup broadcast.
+// =============================================================================
+class MainComponent::SaveDebouncer : public juce::Timer
+{
+public:
+    static constexpr int kSaveDelayMs = 750;
+
+    explicit SaveDebouncer (MainComponent& o) : owner (o) {}
+
+    void timerCallback() override
+    {
+        stopTimer();
+        owner.flushSaveNow();
+    }
+
+    void schedule()
+    {
+        startTimer (kSaveDelayMs);
+    }
+
+    void cancel()
+    {
+        stopTimer();
+    }
+
+private:
+    MainComponent& owner;
+};
+
 MainComponent::MainComponent()
 {
     // Log resolved data paths on every launch so Dave can paste them
@@ -31,6 +148,10 @@ MainComponent::MainComponent()
     addAndMakeVisible (lookupCoversButton);
     lookupCoversButton.onClick = [this] { runManualLookup(); };
     lookupCoversButton.setEnabled (false);
+
+    addAndMakeVisible (cancelButton);
+    cancelButton.onClick = [this] { onCancelButtonClicked(); };
+    cancelButton.setEnabled (false);
 
     addAndMakeVisible (viewListButton);
     viewListButton.setRadioGroupId (1);
@@ -122,6 +243,9 @@ MainComponent::MainComponent()
         updateDiagnosticsLabel();
     };
 
+    folderScanner = std::make_unique<FolderScanner>   (*this);
+    saveDebouncer = std::make_unique<SaveDebouncer>   (*this);
+
     updateFolderLabel();
     updateStatusLabel();
     updateDiagnosticsLabel();
@@ -133,6 +257,15 @@ MainComponent::MainComponent()
 
 MainComponent::~MainComponent()
 {
+    // Stop background work BEFORE the library + storage members go
+    // away, otherwise the worker thread can write into a half-
+    // destructed library.
+    if (folderScanner) folderScanner->stopThread (4000);
+    lookupController.cancel();
+    if (saveDebouncer) saveDebouncer->cancel();
+    // Final synchronous save so anything still pending lands on disk.
+    flushSaveNow();
+
     previewPlayer.removeChangeListener (this);
     library.removeChangeListener (this);
 }
@@ -174,6 +307,8 @@ void MainComponent::resized()
     scanButton.setBounds          (toolbar.removeFromLeft (80));
     toolbar.removeFromLeft (8);
     lookupCoversButton.setBounds  (toolbar.removeFromLeft (110));
+    toolbar.removeFromLeft (8);
+    cancelButton.setBounds        (toolbar.removeFromLeft (80));
     toolbar.removeFromLeft (12);
 
     statusLabel.setBounds         (toolbar.removeFromRight (320));
@@ -224,21 +359,7 @@ void MainComponent::onChooseFolderClicked()
         if (folder == juce::File{} || ! folder.isDirectory())
             return;
 
-        library.scanFolder (folder);
-        // Re-apply any previously-saved tags / priority / notes /
-        // Discogs / Spotify metadata to the freshly-scanned tracks
-        // before the lookup starts (so already-cached covers don't
-        // get re-queried).
-        storage.applySavedFieldsToLibrary (library);
-        library.sendChangeMessage();
-        scanButton.setEnabled (true);
-
-        // Auto-fire the metadata lookup for the freshly-scanned set.
-        // LookupController already (a) runs on a background thread,
-        // (b) skips tracks that already have a cached cover, and
-        // (c) paces requests so a folder with thousands of files
-        // doesn't hammer the proxy.
-        startAutoLookup();
+        startFolderScan (folder);
     });
 }
 
@@ -246,10 +367,78 @@ void MainComponent::runScan()
 {
     if (! library.getFolder().isDirectory())
         return;
+    startFolderScan (library.getFolder());
+}
 
-    library.scanFolder (library.getFolder());
+void MainComponent::startFolderScan (juce::File folder)
+{
+    // Cancel anything still in flight so we don't apply stale batches
+    // / stale lookup results to the new library state.
+    cancelInFlightWork();
+
+    library.clear (folder);
+
+    scanFolder  = std::move (folder);
+    isScanning  = true;
+    scanFound   = 0;
+
+    updateFolderLabel();
+    updateButtonsEnabled();
+    updateStatusLabel();
+
+    folderScanner->scan (scanFolder);
+}
+
+void MainComponent::cancelInFlightWork()
+{
+    if (folderScanner)
+        folderScanner->stopThread (4000);
+    lookupController.cancel();
+
+    isScanning  = false;
+    isLookingUp = false;
+    lookupDone  = 0;
+    lookupTotal = 0;
+    updateButtonsEnabled();
+    updateStatusLabel();
+    updateDiagnosticsLabel();
+}
+
+void MainComponent::onCancelButtonClicked()
+{
+    cancelInFlightWork();
+}
+
+void MainComponent::onScanBatchReady (std::vector<TrackFile> batch,
+                                      int totalFound, bool done)
+{
+    library.appendBatchSilently (std::move (batch));
+    scanFound = totalFound;
+
+    if (! done)
+    {
+        // Mid-scan: just update the status label. The views will
+        // catch up once the scan completes and we fire a real
+        // library broadcast.
+        updateStatusLabel();
+        return;
+    }
+
+    // Scan complete — apply persisted tags / metadata and fire the
+    // one-shot library broadcast that updates List, Grid, sidebar
+    // counts, and triggers a debounced save.
+    isScanning = false;
     storage.applySavedFieldsToLibrary (library);
     library.sendChangeMessage();
+
+    scanButton.setEnabled (true);
+    updateButtonsEnabled();
+    updateStatusLabel();
+
+    // Auto-fire the metadata lookup for the freshly-scanned set.
+    // LookupController already (a) runs on a background thread,
+    // (b) skips tracks that already have cached artwork, and
+    // (c) paces requests so a large folder doesn't hammer the proxy.
     startAutoLookup();
 }
 
@@ -331,13 +520,14 @@ void MainComponent::onTrackLookupProcessed (int /*trackIndex*/,
 
 void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* src)
 {
-    // Library changes -> persist state. Player changes don't affect
-    // persisted data, so we only save on library changes. Saving 20
-    // tracks of JSON to ~/Library/Application Support takes
-    // sub-millisecond on a local SSD; doing it on every library
-    // broadcast (incl. each Discogs lookup result) is fine for v0.1.
+    // Library changes -> persist state, but DEBOUNCED. With thousands
+    // of tracks the JSON write is in the tens-of-ms range and the
+    // lookup pipeline broadcasts one library change per track —
+    // saving on every broadcast was the dominant freeze cause at
+    // 8 000 tracks. The debouncer waits ~750 ms after the last
+    // broadcast before writing once.
     if (src == &library)
-        storage.snapshotAndSave (library);
+        scheduleSave();
 
     recomputeVisibleIndices();
     recomputeBoardCounts();
@@ -345,6 +535,18 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* src)
     updateStatusLabel();
     updateDiagnosticsLabel();
     updateButtonsEnabled();
+}
+
+void MainComponent::scheduleSave()
+{
+    if (saveDebouncer)
+        saveDebouncer->schedule();
+}
+
+void MainComponent::flushSaveNow()
+{
+    if (library.getNumTracks() > 0 || library.getFolder().isDirectory())
+        storage.snapshotAndSave (library);
 }
 
 void MainComponent::togglePlayback (int trackIndex)
@@ -451,6 +653,22 @@ void MainComponent::updateFolderLabel()
 
 void MainComponent::updateStatusLabel()
 {
+    // Helper for "12,345" formatting on the bigger numbers Dave sees
+    // with multi-thousand libraries. juce::String doesn't ship a
+    // locale-aware formatter so we insert commas by hand.
+    auto withCommas = [] (int x) -> juce::String
+    {
+        const auto raw = juce::String (x);
+        juce::String out;
+        const int len = raw.length();
+        for (int i = 0; i < len; ++i)
+        {
+            if (i > 0 && (len - i) % 3 == 0) out << ',';
+            out << raw.substring (i, i + 1);
+        }
+        return out;
+    };
+
     const int n = library.getNumTracks();
 
     juce::String text;
@@ -474,18 +692,26 @@ void MainComponent::updateStatusLabel()
         return;
     }
 
-    text << "Loaded " << n << " track" << (n == 1 ? juce::String() : juce::String ("s"));
+    if (isScanning)
+    {
+        text << "Scanning... " << withCommas (scanFound) << " tracks found";
+    }
+    else
+    {
+        text << "Loaded " << withCommas (n) << (n == 1 ? " track" : " tracks");
+    }
 
     if (isLookingUp && lookupTotal > 0)
     {
-        text << "   |   Artwork lookup " << lookupDone << "/" << lookupTotal;
+        text << "   |   Artwork lookup "
+             << withCommas (lookupDone) << "/" << withCommas (lookupTotal);
     }
     else if (countSpotifyArt + countDiscogsArt + countNoArtwork > 0)
     {
         text << "   |   Artwork: "
-             << countSpotifyArt << " Spotify, "
-             << countDiscogsArt << " Discogs, "
-             << countNoArtwork  << " none";
+             << withCommas (countSpotifyArt) << " Spotify, "
+             << withCommas (countDiscogsArt) << " Discogs, "
+             << withCommas (countNoArtwork)  << " none";
     }
     else if (activeBoardIndex >= 0)
     {
@@ -534,9 +760,13 @@ void MainComponent::updateDiagnosticsLabel()
 
 void MainComponent::updateButtonsEnabled()
 {
-    const bool haveTracks = library.getNumTracks() > 0;
-    scanButton.setEnabled (library.getFolder().isDirectory());
-    lookupCoversButton.setEnabled (haveTracks && ! isLookingUp);
+    const bool haveTracks    = library.getNumTracks() > 0;
+    const bool workInFlight  = isScanning || isLookingUp;
+
+    chooseFolderButton.setEnabled (! isScanning);
+    scanButton.setEnabled         (library.getFolder().isDirectory() && ! workInFlight);
+    lookupCoversButton.setEnabled (haveTracks && ! workInFlight);
+    cancelButton.setEnabled       (workInFlight);
 }
 
 juce::File MainComponent::getDefaultStartFolder()

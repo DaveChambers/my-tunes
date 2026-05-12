@@ -50,6 +50,16 @@ public:
     // (future) and by unit tests. Broadcasts.
     void appendTrack (TrackFile track);
 
+    // ---- Bulk-load API used by the async folder scanner -----------
+    // These deliberately do NOT broadcast on each call. The scanner
+    // appends batches of 100-200 parsed TrackFile objects without
+    // forcing the views to refresh after every batch; one explicit
+    // sendChangeMessage at scan-complete time is enough to update
+    // the UI and trigger TrackStorage persistence once.
+    void clear (juce::File folderIfKnown = {});
+    void appendBatchSilently (std::vector<TrackFile>&& batch);
+    void setFolderSilently (juce::File f) { folder = std::move (f); }
+
 private:
     juce::File             folder;
     std::vector<TrackFile> tracks;

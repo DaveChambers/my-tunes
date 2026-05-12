@@ -82,7 +82,23 @@ public:
         const int cols       = columnsFor (getWidth());
         const int playingIdx = owner.player.getPlayingTrackIndex();
 
-        for (int i = 0; i < n; ++i)
+        // Only paint cards that intersect the current clip rectangle.
+        // For 8 000-card libraries this is the difference between
+        // ~30 cards painted per scroll tick and 8 000 — and crucially
+        // it stops juce::ImageCache::getFromFile from being called on
+        // every card every paint (each call does a hash-keyed file
+        // re-read on cache miss, so iterating all of them is the
+        // dominant grid-freeze cause).
+        const auto clip = g.getClipBounds();
+        const int  rowStride = kCardH + kGutter;
+        const int  firstRow = juce::jmax (0,
+                                  (clip.getY()      - kOuterMargin) / rowStride);
+        const int  lastRow  = juce::jmax (0,
+                                  (clip.getBottom() - kOuterMargin) / rowStride);
+        const int  firstCard = firstRow * cols;
+        const int  lastCardEx = juce::jmin (n, (lastRow + 1) * cols);
+
+        for (int i = firstCard; i < lastCardEx; ++i)
         {
             const int libIdx = owner.visibleAt (i);
             if (libIdx < 0) continue;

@@ -77,3 +77,21 @@ void TrackLibrary::appendTrack (TrackFile track)
     tracks.push_back (std::move (track));
     sendChangeMessage();
 }
+
+void TrackLibrary::clear (juce::File folderIfKnown)
+{
+    tracks.clear();
+    folder = std::move (folderIfKnown);
+    sendChangeMessage();
+}
+
+void TrackLibrary::appendBatchSilently (std::vector<TrackFile>&& batch)
+{
+    if (batch.empty())
+        return;
+    tracks.reserve (tracks.size() + batch.size());
+    for (auto& tf : batch)
+        tracks.push_back (std::move (tf));
+    // Deliberately NO sendChangeMessage here — the scanner orchestrates
+    // a single broadcast at the end of the run.
+}
