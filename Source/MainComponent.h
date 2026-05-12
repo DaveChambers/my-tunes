@@ -22,7 +22,7 @@
 // which app build he's running. Bump the suffix on every behaviour
 // change.
 #ifndef MYTUNES_BUILD_LABEL
- #define MYTUNES_BUILD_LABEL "v0.1 - search in main toolbar"
+ #define MYTUNES_BUILD_LABEL "v0.1 - selection survives broadcasts"
 #endif
 
 class MainComponent : public juce::Component,

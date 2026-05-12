@@ -115,9 +115,14 @@ public:
 
         if (i < 0)
         {
-            selectedCardIndex = -1;
+            // Empty-grid-space click. Drop the visual highlight but DO
+            // NOT clobber MainComponent's selection — the user might
+            // have only mis-clicked between cards. Letting it through
+            // here is what used to break stop-clicking-doesn't-stick
+            // when a lookup broadcast happened to land mid-click.
+            selectedCardIndex      = -1;
+            selectedLibraryIndex   = -1;
             repaint();
-            if (owner.onTrackSelected) owner.onTrackSelected (-1);
             return;
         }
 
@@ -127,7 +132,8 @@ public:
 
         if (e.mods.isPopupMenu())
         {
-            selectedCardIndex = i;
+            selectedCardIndex    = i;
+            selectedLibraryIndex = libIdx;
             repaint();
             showTagPopupMenu (libIdx, e.getScreenPosition());
             return;
@@ -146,7 +152,8 @@ public:
             return;
         }
 
-        selectedCardIndex = i;
+        selectedCardIndex    = i;
+        selectedLibraryIndex = libIdx;
         repaint();
         if (owner.onTrackSelected) owner.onTrackSelected (libIdx);
     }
@@ -158,7 +165,8 @@ public:
         const int libIdx = owner.visibleAt (i);
         if (libIdx < 0) return;
 
-        selectedCardIndex = i;
+        selectedCardIndex    = i;
+        selectedLibraryIndex = libIdx;
         repaint();
         if (owner.onTrackSelected)        owner.onTrackSelected (libIdx);
         if (owner.onPlayToggleRequested)  owner.onPlayToggleRequested (libIdx);
@@ -179,7 +187,32 @@ public:
              + kBottomPadding;
     }
 
-    void clearSelection() { selectedCardIndex = -1; }
+    // Re-anchor the card-highlight after the visible-index list has
+    // been rebuilt (filter change). The grid's source-of-truth is the
+    // library index of the currently-selected track; we look it up in
+    // the freshly-rebuilt visibleIndices to find its new card slot,
+    // and if it's been filtered out we drop the highlight quietly
+    // (without clobbering MainComponent's selection).
+    void reanchorSelectionToVisibleList()
+    {
+        if (selectedLibraryIndex < 0)
+        {
+            selectedCardIndex = -1;
+            return;
+        }
+        const int n = owner.numVisible();
+        for (int i = 0; i < n; ++i)
+        {
+            if (owner.visibleAt (i) == selectedLibraryIndex)
+            {
+                selectedCardIndex = i;
+                return;
+            }
+        }
+        selectedCardIndex = -1;
+    }
+
+    int getSelectedLibraryIndex() const noexcept { return selectedLibraryIndex; }
 
 private:
     juce::Rectangle<int> cardRect (int cardIndex, int cols) const
@@ -387,7 +420,8 @@ private:
     }
 
     TrackGridComponent& owner;
-    int                 selectedCardIndex = -1;
+    int                 selectedCardIndex    = -1;  // visible-list index
+    int                 selectedLibraryIndex = -1;  // library index; source of truth
 };
 
 // =============================================================================
@@ -444,7 +478,13 @@ void TrackGridComponent::refresh()
 void TrackGridComponent::setVisibleTrackIndices (std::vector<int> indices)
 {
     visibleIndices = std::move (indices);
-    cards->clearSelection();
+    // Re-anchor the card-highlight to the *library index* the user
+    // previously selected. If that track is still in the filtered set
+    // it gets its highlight back; if it's been filtered out the
+    // highlight goes quiet. Crucially this does NOT fire onTrackSelected,
+    // so library/player broadcasts mid-click can't clobber
+    // MainComponent's selection (the regression we just fixed).
+    cards->reanchorSelectionToVisibleList();
     refresh();
 }
 

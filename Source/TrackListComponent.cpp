@@ -88,10 +88,30 @@ void TrackListComponent::refresh()
 
 void TrackListComponent::setVisibleTrackIndices (std::vector<int> indices)
 {
+    // Capture the currently-selected LIBRARY index so we can re-anchor
+    // the row selection after the filter rebuild. Without this we used
+    // to call table.deselectAllRows() which propagates
+    // selectedRowsChanged(-1) into MainComponent and wipes the user's
+    // selection mid-click whenever a library broadcast lands (e.g. a
+    // per-track artwork-lookup result during an 8 000-track session).
+    const int prevSelectedLibIdx = rowToLibraryIndex (table.getSelectedRow());
+
     baseIndices = std::move (indices);
     rebuildDisplayedIndices();
-    table.deselectAllRows();
     table.updateContent();
+
+    juce::SparseSet<int> newSelection;
+    if (prevSelectedLibIdx >= 0)
+    {
+        const int newRow = libraryIndexToRow (prevSelectedLibIdx);
+        if (newRow >= 0)
+            newSelection.addRange ({ newRow, newRow + 1 });
+    }
+    // dontSendNotification: do NOT forward this filter-driven
+    // selection change as a click-style selectedRowsChanged callback.
+    // Only the user actually clicking a row should fire that.
+    table.setSelectedRows (newSelection, juce::dontSendNotification);
+
     table.repaint();
 }
 
