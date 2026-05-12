@@ -83,4 +83,5 @@ void TrackFilenameParser::parse (TrackFile& tf, const juce::File& file)
     tf.filename  = file.getFileName();
     tf.extension = file.getFileExtension().substring (1).toLowerCase();
     parse (tf, file.getFileNameWithoutExtension());
+    tf.rebuildSearchKey();
 }

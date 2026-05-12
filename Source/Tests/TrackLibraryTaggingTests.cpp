@@ -123,6 +123,82 @@ public:
         //  changeListenerCallback on each view + on the MainComponent,
         //  which Dave will see immediately on right-click.)
 
+        beginTest ("searchKey is lowercased, includes artist/title/version/filename/tags");
+        {
+            TrackFile tf;
+            tf.artist   = "Deadmau5";
+            tf.title    = "Strobe";
+            tf.version  = "Original Mix";
+            tf.filename = "Deadmau5 - Strobe (Original Mix).mp3";
+            tf.emojiTags.add (kMust);
+            tf.rebuildSearchKey();
+
+            // Whole thing is lowercased.
+            expect (tf.searchKey == tf.searchKey.toLowerCase());
+
+            // Case-insensitive partial match works on each field.
+            expect (tf.searchKey.contains ("dead"),     "artist token");
+            expect (tf.searchKey.contains ("strobe"),   "title token");
+            expect (tf.searchKey.contains ("original"), "version token");
+            expect (tf.searchKey.contains (".mp3"),     "filename ext");
+
+            // Emoji tag is preserved in the key.
+            expect (tf.searchKey.contains (kMust), "emoji tag");
+
+            // Toggle removes the tag from the searchable key.
+            tf.emojiTags.remove (tf.emojiTags.indexOf (kMust));
+            tf.rebuildSearchKey();
+            expect (! tf.searchKey.contains (kMust),
+                    "removed tag must drop out of search key");
+        }
+
+        beginTest ("search key combines case-insensitively with emoji filter");
+        {
+            // Simulate the in-memory filter combination MainComponent
+            // does over searchKey + emojiTags.
+            TrackFile a; a.artist = "Nush";       a.title = "You Girls";
+                         a.filename = "Nush - You Girls.wav";
+                         a.emojiTags.add (kSunset);
+                         a.rebuildSearchKey();
+            TrackFile b; b.artist = "Deadmau5";    b.title = "Strobe";
+                         b.filename = "Deadmau5 - Strobe.mp3";
+                         b.emojiTags.add (kRave);
+                         b.rebuildSearchKey();
+            TrackFile c; c.artist = "Phil Kieran"; c.title = "Saturdays";
+                         c.filename = "Phil Kieran - Saturdays.mp3";
+                         c.emojiTags.add (kSunset);
+                         c.rebuildSearchKey();
+
+            const std::vector<TrackFile> tracks { a, b, c };
+            auto filter = [&] (const juce::String& rawQuery,
+                                const juce::String& emoji)
+            {
+                const auto q = rawQuery.toLowerCase();
+                std::vector<int> hits;
+                for (int i = 0; i < (int) tracks.size(); ++i)
+                {
+                    const auto& tf = tracks[(std::size_t) i];
+                    if (emoji.isNotEmpty() && ! tf.emojiTags.contains (emoji))
+                        continue;
+                    if (q.isNotEmpty() && ! tf.searchKey.contains (q))
+                        continue;
+                    hits.push_back (i);
+                }
+                return hits;
+            };
+
+            // Search alone, mixed case.
+            expectEquals ((int) filter ("DEAD", {}).size(), 1);
+            expectEquals ((int) filter ("nush", {}).size(), 1);
+            expectEquals ((int) filter ("girls", {}).size(), 1);
+
+            // Search + emoji ANDs the filters.
+            expectEquals ((int) filter ("strobe", kRave).size(),   1);
+            expectEquals ((int) filter ("strobe", kSunset).size(), 0);
+            expectEquals ((int) filter ({},       kSunset).size(), 2); // a + c
+            expectEquals ((int) filter ("you",    kSunset).size(), 1); // only a
+        }
+
         beginTest ("bulk-load API: clear + appendBatchSilently scales to many tracks");
         {
             TrackLibrary lib;

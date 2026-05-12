@@ -22,7 +22,7 @@
 // which app build he's running. Bump the suffix on every behaviour
 // change.
 #ifndef MYTUNES_BUILD_LABEL
- #define MYTUNES_BUILD_LABEL "v0.1 - async scan, debounced save, lazy grid"
+ #define MYTUNES_BUILD_LABEL "v0.1 - live search"
 #endif
 
 class MainComponent : public juce::Component,
@@ -59,6 +59,9 @@ private:
     juce::Label      attributionLabel;
     juce::Label      versionLabel;
 
+    juce::TextEditor searchField;
+    juce::TextButton searchClearButton  { "x" };
+
     EmojiTagBoardComponent emojiBoard;
     TrackListComponent     listView   { library, previewPlayer };
     TrackGridComponent     gridView   { library, previewPlayer };
@@ -69,6 +72,12 @@ private:
     int              activeBoardIndex   = -1;
     std::vector<int> visibleIndices;
     int              selectedTrackIndex = -1;
+
+    // Search state. The field's TextEditor::onTextChange scribbles
+    // into `searchText` (lowercased) and (re)starts the debounce
+    // timer. The timer's callback runs recomputeVisibleIndices,
+    // which ANDs `searchText` with `activeBoardIndex`.
+    juce::String     searchText;
 
     // Artwork lookup state, all maintained on the message thread.
     bool             isLookingUp     = false;
@@ -117,6 +126,16 @@ private:
     std::unique_ptr<SaveDebouncer> saveDebouncer;
     void scheduleSave();
     void flushSaveNow();
+
+    // Search field debounce. Every keystroke (re)schedules this;
+    // when it fires we run recomputeVisibleIndices once. Keeps
+    // 8 000-track filtering responsive without re-filtering on
+    // every keystroke.
+    class SearchDebouncer;
+    std::unique_ptr<SearchDebouncer> searchDebouncer;
+    void onSearchFieldChanged();
+    void onSearchClearClicked();
+    void applySearchNow();
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 

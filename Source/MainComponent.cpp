@@ -117,6 +117,31 @@ private:
     MainComponent& owner;
 };
 
+// =============================================================================
+// SearchDebouncer: every keystroke restarts this timer; when it fires, the
+// owner re-filters the visible-index list. ~120 ms feels live while keeping
+// 8 000-track filtering smooth.
+// =============================================================================
+class MainComponent::SearchDebouncer : public juce::Timer
+{
+public:
+    static constexpr int kSearchDelayMs = 120;
+
+    explicit SearchDebouncer (MainComponent& o) : owner (o) {}
+
+    void timerCallback() override
+    {
+        stopTimer();
+        owner.applySearchNow();
+    }
+
+    void schedule() { startTimer (kSearchDelayMs); }
+    void cancel()   { stopTimer(); }
+
+private:
+    MainComponent& owner;
+};
+
 MainComponent::MainComponent()
 {
     // Log resolved data paths on every launch so Dave can paste them
@@ -173,9 +198,32 @@ MainComponent::MainComponent()
     statusLabel.setColour (juce::Label::textColourId, juce::Colours::lightgrey);
     statusLabel.setFont   (juce::Font (juce::FontOptions ("Helvetica", 12.0f, 0)));
 
-    // ---- second toolbar row: diagnostics ----------------------------------
+    // ---- second toolbar row: search + diagnostics -------------------------
+    addAndMakeVisible (searchField);
+    searchField.setTextToShowWhenEmpty ("Search artist, title, filename...",
+                                         juce::Colours::lightgrey.withAlpha (0.5f));
+    searchField.setColour (juce::TextEditor::backgroundColourId, juce::Colour (0xff262830));
+    searchField.setColour (juce::TextEditor::textColourId,        juce::Colours::white);
+    searchField.setColour (juce::TextEditor::outlineColourId,
+                            juce::Colours::lightgrey.withAlpha (0.25f));
+    searchField.setColour (juce::TextEditor::focusedOutlineColourId,
+                            juce::Colour (0xff7d8db8));
+    searchField.setFont   (juce::Font (juce::FontOptions ("Helvetica", 12.0f, 0)));
+    searchField.setEscapeAndReturnKeysConsumed (true);
+    searchField.onTextChange = [this] { onSearchFieldChanged(); };
+    // Escape key clears the field without losing focus.
+    searchField.onEscapeKey  = [this] { onSearchClearClicked(); };
+
+    addAndMakeVisible (searchClearButton);
+    searchClearButton.setColour (juce::TextButton::buttonColourId,
+                                  juce::Colour (0xff262830));
+    searchClearButton.setColour (juce::TextButton::textColourOffId,
+                                  juce::Colours::lightgrey);
+    searchClearButton.onClick = [this] { onSearchClearClicked(); };
+    searchClearButton.setEnabled (false);
+
     addAndMakeVisible (diagnosticsLabel);
-    diagnosticsLabel.setJustificationType (juce::Justification::centredLeft);
+    diagnosticsLabel.setJustificationType (juce::Justification::centredRight);
     diagnosticsLabel.setColour (juce::Label::textColourId,
                                 juce::Colours::lightgrey.withAlpha (0.85f));
     diagnosticsLabel.setFont   (juce::Font (juce::FontOptions ("Helvetica", 11.0f, 0)));
@@ -243,8 +291,9 @@ MainComponent::MainComponent()
         updateDiagnosticsLabel();
     };
 
-    folderScanner = std::make_unique<FolderScanner>   (*this);
-    saveDebouncer = std::make_unique<SaveDebouncer>   (*this);
+    folderScanner   = std::make_unique<FolderScanner>   (*this);
+    saveDebouncer   = std::make_unique<SaveDebouncer>   (*this);
+    searchDebouncer = std::make_unique<SearchDebouncer> (*this);
 
     updateFolderLabel();
     updateStatusLabel();
@@ -260,9 +309,10 @@ MainComponent::~MainComponent()
     // Stop background work BEFORE the library + storage members go
     // away, otherwise the worker thread can write into a half-
     // destructed library.
-    if (folderScanner) folderScanner->stopThread (4000);
+    if (folderScanner)   folderScanner->stopThread (4000);
     lookupController.cancel();
-    if (saveDebouncer) saveDebouncer->cancel();
+    if (saveDebouncer)   saveDebouncer->cancel();
+    if (searchDebouncer) searchDebouncer->cancel();
     // Final synchronous save so anything still pending lands on disk.
     flushSaveNow();
 
@@ -322,8 +372,14 @@ void MainComponent::resized()
     folderLabel.setBounds         (toolbar);
 
     // Diagnostics row (24 tall, just below the toolbar)
-    auto diagRow = bounds.removeFromTop (22);
-    diagnosticsLabel.setBounds (diagRow.reduced (12, 2));
+    // Search field on the left, diagnostics text on the right.
+    auto diagRow = bounds.removeFromTop (24).reduced (12, 1);
+    auto searchSlot = diagRow.removeFromLeft (320);
+    searchClearButton.setBounds (searchSlot.removeFromRight (22).reduced (0, 1));
+    searchSlot.removeFromRight (4);
+    searchField.setBounds       (searchSlot);
+    diagRow.removeFromLeft (12);
+    diagnosticsLabel.setBounds  (diagRow);
 
     // Main area
     bounds.removeFromTop (4);
@@ -549,6 +605,29 @@ void MainComponent::flushSaveNow()
         storage.snapshotAndSave (library);
 }
 
+void MainComponent::onSearchFieldChanged()
+{
+    searchClearButton.setEnabled (searchField.getText().isNotEmpty());
+    if (searchDebouncer)
+        searchDebouncer->schedule();
+}
+
+void MainComponent::onSearchClearClicked()
+{
+    searchField.setText ({}, juce::sendNotificationSync);
+    searchField.giveAwayKeyboardFocus();
+    // setText fires onTextChange which schedules a rebuild; also
+    // explicitly apply now in case the field was already empty.
+    applySearchNow();
+}
+
+void MainComponent::applySearchNow()
+{
+    searchText = searchField.getText().trim().toLowerCase();
+    recomputeVisibleIndices();
+    updateStatusLabel();
+}
+
 void MainComponent::togglePlayback (int trackIndex)
 {
     if (trackIndex < 0 || trackIndex >= library.getNumTracks())
@@ -608,23 +687,50 @@ void MainComponent::recomputeVisibleIndices()
     visibleIndices.clear();
     const int n = library.getNumTracks();
 
-    if (activeBoardIndex >= 0)
+    const bool emojiActive  = activeBoardIndex >= 0;
+    const bool searchActive = searchText.isNotEmpty();
+
+    if (! emojiActive && ! searchActive)
+    {
+        // Sentinel: an empty visibleIndices vector tells the list +
+        // grid views to "show everything" — they avoid an O(n) copy
+        // by skipping the filter entirely.
+        listView.setVisibleTrackIndices (visibleIndices);
+        gridView.setVisibleTrackIndices (visibleIndices);
+        return;
+    }
+
+    juce::String boardEmoji;
+    if (emojiActive)
     {
         const auto& boards = EmojiTagBoardComponent::getBoards();
-        const auto  emoji  = boards[(std::size_t) activeBoardIndex].emoji;
-        for (int i = 0; i < n; ++i)
-            if (library.getTrack (i).emojiTags.contains (emoji))
-                visibleIndices.push_back (i);
+        boardEmoji = boards[(std::size_t) activeBoardIndex].emoji;
+    }
+
+    visibleIndices.reserve ((std::size_t) n);
+    for (int i = 0; i < n; ++i)
+    {
+        const auto& tf = library.getTrack (i);
+        if (emojiActive && ! tf.emojiTags.contains (boardEmoji))
+            continue;
+        if (searchActive && ! tf.searchKey.contains (searchText))
+            continue;
+        visibleIndices.push_back (i);
     }
 
     listView.setVisibleTrackIndices (visibleIndices);
     gridView.setVisibleTrackIndices (visibleIndices);
 
-    if (selectedTrackIndex >= 0 && activeBoardIndex >= 0)
+    // If the currently selected track no longer survives the filter,
+    // drop the selection so the detail panel doesn't keep pointing at
+    // an invisible row.
+    if (selectedTrackIndex >= 0)
     {
-        const auto& boards = EmojiTagBoardComponent::getBoards();
-        const auto  emoji  = boards[(std::size_t) activeBoardIndex].emoji;
-        if (! library.getTrack (selectedTrackIndex).emojiTags.contains (emoji))
+        const auto& tf = library.getTrack (selectedTrackIndex);
+        const bool stillVisible =
+            (! emojiActive  || tf.emojiTags.contains (boardEmoji))
+         && (! searchActive || tf.searchKey.contains (searchText));
+        if (! stillVisible)
             onTrackSelected (-1);
     }
 }
@@ -701,6 +807,25 @@ void MainComponent::updateStatusLabel()
         text << "Loaded " << withCommas (n) << (n == 1 ? " track" : " tracks");
     }
 
+    // Search + emoji-filter summary. Shown whenever either filter is
+    // active so the user can tell how many of the loaded tracks are
+    // currently visible.
+    const bool emojiActive  = activeBoardIndex >= 0;
+    const bool searchActive = searchText.isNotEmpty();
+    if (emojiActive || searchActive)
+    {
+        const int shown = (int) visibleIndices.size();
+        text << "   |   Showing " << withCommas (shown);
+        if (searchActive)
+            text << " matching \"" << searchText << "\"";
+        if (emojiActive)
+        {
+            const auto& boards = EmojiTagBoardComponent::getBoards();
+            const auto& b      = boards[(std::size_t) activeBoardIndex];
+            text << (searchActive ? " in " : " in ") << b.emoji << " " << b.label;
+        }
+    }
+
     if (isLookingUp && lookupTotal > 0)
     {
         text << "   |   Artwork lookup "
@@ -713,14 +838,6 @@ void MainComponent::updateStatusLabel()
              << withCommas (countDiscogsArt) << " Discogs, "
              << withCommas (countNoArtwork)  << " none";
     }
-    else if (activeBoardIndex >= 0)
-    {
-        const auto& boards = EmojiTagBoardComponent::getBoards();
-        const auto& b      = boards[(std::size_t) activeBoardIndex];
-        text << "   |   filtered: " << b.emoji << " " << b.label
-             << " (" << (int) visibleIndices.size() << ")";
-    }
-
     statusLabel.setText (text, juce::dontSendNotification);
 }
 

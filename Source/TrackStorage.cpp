@@ -225,6 +225,9 @@ void TrackStorage::applySavedFieldsToLibrary (TrackLibrary& library) const
             if (cached.existsAsFile())
                 tf.cachedArtworkPath = cached;
         }
+
+        // Restored emojiTags affect the search index.
+        tf.rebuildSearchKey();
     }
 }
 

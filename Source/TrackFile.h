@@ -94,6 +94,29 @@ struct TrackFile
     // to paint the artwork. Empty string until a lookup has run.
     juce::String  matchConfidence;
 
+    // --- Search index ------------------------------------------------------
+    // Lowercased "artist title version filename tag1 tag2..." used by the
+    // toolbar search box. Cached here so each keystroke can do a cheap
+    // substring match against thousands of tracks without re-lowercasing
+    // anything per-keystroke. Not persisted — rebuilt on parse, on tag
+    // toggle, and on TrackStorage::applySavedFieldsToLibrary.
+    juce::String  searchKey;
+
+    // Recompute searchKey from the current artist / title / version /
+    // filename / emojiTags. Cheap; safe to call repeatedly.
+    void rebuildSearchKey()
+    {
+        juce::String s;
+        s.preallocateBytes (artist.getNumBytesAsUTF8()
+                            + title.getNumBytesAsUTF8()
+                            + version.getNumBytesAsUTF8()
+                            + filename.getNumBytesAsUTF8() + 16);
+        s << artist << ' ' << title << ' ' << version << ' ' << filename;
+        for (const auto& tag : emojiTags)
+            s << ' ' << tag;
+        searchKey = s.toLowerCase();
+    }
+
     // --- Which source produced the cover that's currently cached -----------
     // Set when LookupController commits a successful lookup. If a Spotify
     // match has a usable image, artworkSource is Spotify and we do NOT

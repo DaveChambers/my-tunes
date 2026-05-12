@@ -56,6 +56,7 @@ bool TrackLibrary::toggleEmojiTag (int trackIndex, const juce::String& emoji)
         tf.emojiTags.add (emoji);
         nowHasTag = true;
     }
+    tf.rebuildSearchKey();  // tag list is part of the search index
 
     sendChangeMessage();
     return nowHasTag;
