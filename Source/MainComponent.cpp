@@ -447,11 +447,29 @@ void MainComponent::startFolderScan (juce::File folder)
     // / stale lookup results to the new library state.
     cancelInFlightWork();
 
-    library.clear (folder);
-
-    scanFolder  = std::move (folder);
+    // CRITICAL: set the scanning flag and cancel any pending save BEFORE
+    // we clear the library. library.clear() broadcasts, which in the
+    // old code reached changeListenerCallback -> scheduleSave -> 750 ms
+    // timer. If that timer fired before the scanner finished + before
+    // applySavedFieldsToLibrary ran, snapshotAndSave wrote a half-loaded
+    // library (artworkSource=None for every freshly-scanned track) to
+    // ~/Library/My Tunes/my-tunes-library.json, OBLITERATING the cached
+    // artwork mappings from previous sessions. That made the next scan
+    // see "no cached artwork" and re-query the entire library against
+    // the metadata proxy.
+    //
+    // Now: while isScanning is true, changeListenerCallback refuses to
+    // schedule a save. We also cancel any timer that was already
+    // counting down from a previous broadcast. The final, correct save
+    // happens at the end of the scan when applySavedFieldsToLibrary
+    // has restored every track's cached metadata and the last
+    // sendChangeMessage runs with isScanning=false.
+    if (saveDebouncer) saveDebouncer->cancel();
     isScanning  = true;
+    scanFolder  = std::move (folder);
     scanFound   = 0;
+
+    library.clear (scanFolder);
 
     updateFolderLabel();
     updateButtonsEnabled();
@@ -518,18 +536,53 @@ void MainComponent::startAutoLookup()
     if (lookupController.isRunning() || library.getNumTracks() == 0)
         return;
 
-    std::vector<int> indices;
+    // Count cached vs missing BEFORE handing the index list to the
+    // LookupController, so:
+    //   - we can show "Loaded N | X cached, M missing" to Dave,
+    //   - the auto-lookup progress bar reports against the *missing*
+    //     count, not the full library, and
+    //   - if cached==N (everything has artwork already), we skip
+    //     calling startLookup entirely — no thread, no broadcasts.
     const int n = library.getNumTracks();
+    int cached  = 0;
+    std::vector<int> indices;
     indices.reserve ((std::size_t) n);
     for (int i = 0; i < n; ++i)
+    {
+        const auto& tf = library.getTrack (i);
+        const bool hasCachedArt =
+            tf.artworkSource != TrackFile::ArtworkSource::None
+            && tf.cachedArtworkPath.existsAsFile();
+        if (hasCachedArt)
+            ++cached;
         indices.push_back (i);
+    }
+    const int missing = n - cached;
 
-    if (indices.empty()) return;
+    juce::Logger::writeToLog (
+        "Lookup (auto): " + juce::String (cached) + " cached, "
+        + juce::String (missing) + " missing of "
+        + juce::String (n) + " total");
+
+    countCachedAtLookupStart = cached;
+    resetLookupCounters();
+
+    if (missing == 0)
+    {
+        // Nothing to do — every track already has cached artwork.
+        // Reflect that in the UI without bothering the proxy at all.
+        isLookingUp  = false;
+        lookupDone   = 0;
+        lookupTotal  = 0;
+        updateButtonsEnabled();
+        updateStatusLabel();
+        updateDiagnosticsLabel();
+        return;
+    }
 
     isLookingUp = true;
     lookupDone  = 0;
-    lookupTotal = (int) indices.size();
-    resetLookupCounters();
+    lookupTotal = missing;
     updateButtonsEnabled();
     updateStatusLabel();
     updateDiagnosticsLabel();
@@ -539,9 +592,10 @@ void MainComponent::startAutoLookup()
 
 void MainComponent::runManualLookup()
 {
-    // Re-lookup button: force-refresh artwork for every track. With
-    // Spotify creds present this is how Dave promotes an old Discogs-
-    // sourced cover to the new Spotify cover.
+    // Re-lookup button: force-refresh artwork for EVERY track. This
+    // bypasses the cache-skip filter so previously-cached tracks DO
+    // get re-queried — that's the user's explicit intent when they
+    // press the button.
     if (lookupController.isRunning() || library.getNumTracks() == 0)
         return;
 
@@ -551,10 +605,15 @@ void MainComponent::runManualLookup()
     for (int i = 0; i < n; ++i)
         indices.push_back (i);
 
+    juce::Logger::writeToLog (
+        "Lookup (force): " + juce::String (n) + " tracks (cache bypassed)");
+
+    countCachedAtLookupStart = 0;
+    resetLookupCounters();
+
     isLookingUp = true;
     lookupDone  = 0;
     lookupTotal = (int) indices.size();
-    resetLookupCounters();
     updateButtonsEnabled();
     updateStatusLabel();
     updateDiagnosticsLabel();
@@ -597,7 +656,14 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster* src)
     // saving on every broadcast was the dominant freeze cause at
     // 8 000 tracks. The debouncer waits ~750 ms after the last
     // broadcast before writing once.
-    if (src == &library)
+    //
+    // We DO NOT schedule a save while a folder scan is in flight.
+    // The scan starts by calling library.clear() which broadcasts;
+    // saving that empty intermediate state would wipe the on-disk
+    // cache of previously-resolved artwork. The save runs once at
+    // the end of the scan after applySavedFieldsToLibrary has
+    // re-populated every track's cached metadata.
+    if (src == &library && ! isScanning)
         scheduleSave();
 
     recomputeVisibleIndices();
@@ -843,15 +909,32 @@ void MainComponent::updateStatusLabel()
 
     if (isLookingUp && lookupTotal > 0)
     {
+        // Progress is reported against the missing-only count, so the
+        // user can tell at a glance that we're not re-querying the
+        // tracks that already have cached artwork.
         text << "   |   Artwork lookup "
-             << withCommas (lookupDone) << "/" << withCommas (lookupTotal);
+             << withCommas (lookupDone) << "/" << withCommas (lookupTotal)
+             << " missing";
+        if (countCachedAtLookupStart > 0)
+            text << " (" << withCommas (countCachedAtLookupStart) << " cached)";
     }
     else if (countSpotifyArt + countDiscogsArt + countNoArtwork > 0)
     {
-        text << "   |   Artwork: "
-             << withCommas (countSpotifyArt) << " Spotify, "
+        text << "   |   Artwork: ";
+        if (countCachedAtLookupStart > 0)
+            text << withCommas (countCachedAtLookupStart) << " cached, ";
+        text << withCommas (countSpotifyArt) << " Spotify, "
              << withCommas (countDiscogsArt) << " Discogs, "
              << withCommas (countNoArtwork)  << " none";
+    }
+    else if (! isScanning && countCachedAtLookupStart > 0)
+    {
+        // Post-scan, nothing left to look up — every track already had
+        // cached artwork. Tell the user explicitly so they know the
+        // proxy was never touched.
+        text << "   |   Artwork: "
+             << withCommas (countCachedAtLookupStart)
+             << " cached (no lookup needed)";
     }
     statusLabel.setText (text, juce::dontSendNotification);
 }

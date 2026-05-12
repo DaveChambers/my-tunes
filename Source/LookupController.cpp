@@ -17,6 +17,17 @@ LookupController::~LookupController()
     stopThread (8000);
 }
 
+bool LookupController::shouldEnqueueForLookup (const TrackFile& tf,
+                                                bool forceRelookup)
+{
+    if (forceRelookup)
+        return true;
+    const bool alreadyResolved =
+        tf.artworkSource != TrackFile::ArtworkSource::None
+        && tf.cachedArtworkPath.existsAsFile();
+    return ! alreadyResolved;
+}
+
 void LookupController::startLookup (const std::vector<int>& libraryIndices,
                                     bool forceRelookup)
 {
@@ -34,13 +45,7 @@ void LookupController::startLookup (const std::vector<int>& libraryIndices,
             continue;
 
         const auto& tf = library.getTrack (idx);
-
-        // Cache: skip tracks that already have artwork with a real
-        // cached file on disk. Re-lookup bypasses this.
-        const bool alreadyResolved =
-            tf.artworkSource != TrackFile::ArtworkSource::None
-            && tf.cachedArtworkPath.existsAsFile();
-        if (alreadyResolved && ! forceRelookup)
+        if (! shouldEnqueueForLookup (tf, forceRelookup))
             continue;
 
         Task t;

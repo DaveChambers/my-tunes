@@ -97,6 +97,16 @@ public:
     // finish; nothing further is processed. Threadsafe.
     void cancel();
 
+    // Cache-skip predicate. Pure / static so it can be unit-tested
+    // against a synthetic TrackFile without spinning up a worker
+    // thread. Returns true if a normal (non-forced) auto-lookup
+    // should issue a metadata request for this track. Cached
+    // tracks (artworkSource != None AND cached file present on
+    // disk) are skipped — that's how 8 000-track libraries stay
+    // off the proxy on a re-scan.
+    static bool shouldEnqueueForLookup (const TrackFile& tf,
+                                         bool forceRelookup);
+
 private:
     void run() override;
 

@@ -160,6 +160,7 @@ target_sources(TuneListTests PRIVATE
     Source/Tests/TuneListConfigTests.cpp
     Source/Tests/MetadataProxyClientTests.cpp
     Source/Tests/LookupMatchingTests.cpp
+    Source/Tests/LookupControllerCacheTests.cpp
     Source/TuneListConfig.cpp
     Source/TuneListConfig.h
     Source/SpotifyClient.cpp
@@ -168,6 +169,12 @@ target_sources(TuneListTests PRIVATE
     Source/MetadataProxyClient.h
     Source/LookupMatching.cpp
     Source/LookupMatching.h
+    Source/LookupController.cpp
+    Source/LookupController.h
+    Source/ArtworkCache.cpp
+    Source/ArtworkCache.h
+    Source/DiscogsClient.cpp
+    Source/DiscogsClient.h
     Source/TrackFilenameParser.cpp
     Source/TrackFilenameParser.h
     Source/TrackFile.h

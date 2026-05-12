@@ -22,7 +22,7 @@
 // which app build he's running. Bump the suffix on every behaviour
 // change.
 #ifndef MYTUNES_BUILD_LABEL
- #define MYTUNES_BUILD_LABEL "v0.1 - selection survives broadcasts"
+ #define MYTUNES_BUILD_LABEL "v0.1 - artwork cache actually respected"
 #endif
 
 class MainComponent : public juce::Component,
@@ -89,6 +89,12 @@ private:
     int              countRejected   = 0;
     int              countLookupError = 0;
     juce::String     lastLookupError;
+
+    // How many tracks in the current library already have valid
+    // cached artwork at the moment auto/manual lookup last started.
+    // Lookup never touches these tracks (Re-lookup bypasses the
+    // cache check, so manual force-refresh still works).
+    int              countCachedAtLookupStart = 0;
 
     // Async scan state. The scanner walks the chosen folder on a
     // worker thread (juce::Thread) and posts batches of parsed
