@@ -6,10 +6,11 @@ endif()
 
 # JUCE on Linux does all HTTP through libcurl; without it the metadata
 # proxy and artwork downloads silently fail. macOS uses NSURLSession.
+# JUCE's NEEDS_CURL option sets JUCE_USE_CURL and links libcurl for us.
 if(UNIX AND NOT APPLE)
-    set(TUNELIST_USE_CURL 1)
+    set(TUNELIST_NEEDS_CURL TRUE)
 else()
-    set(TUNELIST_USE_CURL 0)
+    set(TUNELIST_NEEDS_CURL FALSE)
 endif()
 
 set(CMAKE_CXX_STANDARD 17)
@@ -64,7 +65,12 @@ juce_add_gui_app(TuneList
     BUNDLE_ID       "com.makeelectronicsound.mytunes"
     COMPANY_NAME    "Make Electronic Sound"
     COMPANY_WEBSITE "https://makeelectronicsound.com"
+    NEEDS_CURL      ${TUNELIST_NEEDS_CURL}
 )
+
+# Icon PNG embedded in the binary: used as the window/taskbar icon on Linux
+# (macOS uses the .icns in the app bundle, see below).
+juce_add_binary_data(TuneListAssets SOURCES Assets/TuneListIcon.png)
 
 target_sources(TuneList PRIVATE
     Source/Main.cpp
@@ -106,7 +112,6 @@ target_sources(TuneList PRIVATE
 )
 
 target_compile_definitions(TuneList PRIVATE
-    JUCE_USE_CURL=${TUNELIST_USE_CURL}
     JUCE_WEB_BROWSER=0
     JUCE_STANDALONE_APPLICATION=1
     JUCE_USE_MP3AUDIOFORMAT=1
@@ -115,6 +120,7 @@ target_compile_definitions(TuneList PRIVATE
 )
 
 target_link_libraries(TuneList PRIVATE
+    TuneListAssets
     juce::juce_audio_basics
     juce::juce_audio_devices
     juce::juce_audio_formats
@@ -168,6 +174,7 @@ endif()
 
 juce_add_console_app(TuneListTests
     PRODUCT_NAME "TuneListTests"
+    NEEDS_CURL   ${TUNELIST_NEEDS_CURL}
 )
 
 target_sources(TuneListTests PRIVATE
@@ -207,7 +214,6 @@ target_sources(TuneListTests PRIVATE
 )
 
 target_compile_definitions(TuneListTests PRIVATE
-    JUCE_USE_CURL=${TUNELIST_USE_CURL}
     JUCE_WEB_BROWSER=0
     JUCE_STANDALONE_APPLICATION=1
     JUCE_UNIT_TESTS=1
@@ -230,11 +236,3 @@ target_link_libraries(TuneListTests PRIVATE
 
 enable_testing()
 add_test(NAME TuneListTests COMMAND TuneListTests)
-
-# --- Linux ------------------------------------------------------------------
-# JUCE_USE_CURL=1 on Linux (see top): link libcurl for both targets.
-if(UNIX AND NOT APPLE)
-    find_package(CURL REQUIRED)
-    target_link_libraries(TuneList      PRIVATE CURL::libcurl)
-    target_link_libraries(TuneListTests PRIVATE CURL::libcurl)
-endif()

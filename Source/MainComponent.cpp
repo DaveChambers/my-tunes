@@ -695,7 +695,7 @@ void MainComponent::onSearchFieldChanged()
 
 void MainComponent::onSearchClearClicked()
 {
-    searchField.setText ({}, juce::sendNotificationSync);
+    searchField.setText ({}, true);   // true = fire onTextChange
     searchField.giveAwayKeyboardFocus();
     // setText fires onTextChange which schedules a rebuild; also
     // explicitly apply now in case the field was already empty.
