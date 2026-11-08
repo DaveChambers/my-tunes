@@ -44,3 +44,7 @@ thumbs/
 *.app/
 *.dmg
 *.pkg
+
+# Release builds go on GitHub Releases, not in the repo
+Releases/
+*.zip

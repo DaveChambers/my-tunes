@@ -1,5 +1,9 @@
 # TuneList macOS Release / Signing README
 
+For maintainers who ship signed, notarized macOS builds. Set `APPLE_ID` (your Apple ID
+email) and `TEAM_ID` (your Apple Developer team ID) in your shell first; the commands
+below use them.
+
 This is the simple, repeatable release guide for the **TuneList** standalone macOS app.
 
 TuneList is simpler than the MES synth/plugin releases because it is just a `.app`, not AU/VST plugin binaries plus installer packages.
@@ -17,25 +21,19 @@ sign app -> verify signing -> zip for Apple -> notarize -> staple -> validate ->
 The real TuneList project is here:
 
 ```bash
-/Users/davechambers/Code/MES/my-tunes
-```
-
-Do **not** use this old/empty mistaken folder:
-
-```bash
-/Users/davechambers/Code/my-tunes
+~/Code/my-tunes
 ```
 
 The built app should be here:
 
 ```bash
-/Users/davechambers/Code/MES/my-tunes/build/TuneList_artefacts/TuneList.app
+~/Code/my-tunes/build/TuneList_artefacts/TuneList.app
 ```
 
 The final release ZIP will be created here:
 
 ```bash
-/Users/davechambers/Code/MES/my-tunes/Releases/0.1.0/TuneList-0.1.0-macOS.zip
+~/Code/my-tunes/Releases/0.1.0/TuneList-0.1.0-macOS.zip
 ```
 
 ---
@@ -43,7 +41,7 @@ The final release ZIP will be created here:
 ## 1. Go to the project folder
 
 ```bash
-cd /Users/davechambers/Code/MES/my-tunes
+cd ~/Code/my-tunes
 ```
 
 Check you are in the right place:
@@ -71,7 +69,7 @@ build
 Run this from:
 
 ```bash
-/Users/davechambers/Code/MES/my-tunes
+~/Code/my-tunes
 ```
 
 ```bash
@@ -92,7 +90,7 @@ ls -ld "$TUNELIST_APP_PATH"
 Good output should point at:
 
 ```text
-/Users/davechambers/Code/MES/my-tunes/build/TuneList_artefacts/TuneList.app
+~/Code/my-tunes/build/TuneList_artefacts/TuneList.app
 ```
 
 ---
@@ -106,13 +104,13 @@ security find-identity -v -p codesigning | grep "Developer ID Application: Make 
 Good output looks like:
 
 ```text
-Developer ID Application: Make Electronic Sound OU (VYL8JBMP9C)
+Developer ID Application: Make Electronic Sound OU ($TEAM_ID)
 ```
 
 The Team ID is:
 
 ```text
-VYL8JBMP9C
+$TEAM_ID
 ```
 
 ---
@@ -196,8 +194,8 @@ You only need this step if the saved notarization profile is missing, expired, o
 
 ```bash
 xcrun notarytool store-credentials "$TUNELIST_NOTARY_PROFILE" \
-  --apple-id "dave@makeelectronicsound.com" \
-  --team-id "VYL8JBMP9C"
+  --apple-id "$APPLE_ID" \
+  --team-id "$TEAM_ID"
 ```
 
 When asked for the password, paste an **Apple app-specific password**, not the normal Apple password.
@@ -304,7 +302,7 @@ ls -lh "$TUNELIST_FINAL_ZIP"
 Final upload file:
 
 ```bash
-/Users/davechambers/Code/MES/my-tunes/Releases/0.1.0/TuneList-0.1.0-macOS.zip
+~/Code/my-tunes/Releases/0.1.0/TuneList-0.1.0-macOS.zip
 ```
 
 Upload this one:
@@ -351,7 +349,7 @@ TuneList-0.1.0-macOS.zip
 Use this once everything is set up and you just need to release another build.
 
 ```bash
-cd /Users/davechambers/Code/MES/my-tunes
+cd ~/Code/my-tunes
 
 export TUNELIST_PROJECT_DIR="$PWD"
 export TUNELIST_APP_PATH="$TUNELIST_PROJECT_DIR/build/TuneList_artefacts/TuneList.app"
@@ -407,13 +405,13 @@ echo "$TUNELIST_FINAL_ZIP"
 Copy this file into the project, for example:
 
 ```bash
-cp ~/Downloads/TuneList_RELEASE_SIGNING_README.md /Users/davechambers/Code/MES/my-tunes/RELEASE_SIGNING_README.md
+cp ~/Downloads/TuneList_RELEASE_SIGNING_README.md ~/Code/my-tunes/RELEASE_SIGNING_README.md
 ```
 
 Then commit it:
 
 ```bash
-cd /Users/davechambers/Code/MES/my-tunes
+cd ~/Code/my-tunes
 
 git status
 git add RELEASE_SIGNING_README.md

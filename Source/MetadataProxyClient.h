@@ -25,9 +25,8 @@ public:
     explicit MetadataProxyClient (juce::String endpointUrl = getDefaultEndpoint());
     ~MetadataProxyClient();
 
-    // Default endpoint baked into the build. Overridable in tests
-    // (and someday by a config setting) — but no credentials are
-    // required for normal use.
+    // Default endpoint baked into the build, or $TUNELIST_METADATA_URL
+    // if set. Overridable in tests. No credentials are required.
     static juce::String getDefaultEndpoint();
 
     enum class Source

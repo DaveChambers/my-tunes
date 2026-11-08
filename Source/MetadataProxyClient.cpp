@@ -32,6 +32,11 @@ juce::String MetadataProxyClient::getDefaultEndpoint()
     // credentials in Secret Manager and implements the
     // Spotify-first / Discogs-fallback policy itself, so the macOS
     // app no longer needs any local API tokens for normal use.
+    // Self-hosters can point the app at their own service with
+    // TUNELIST_METADATA_URL=https://.../lookup
+    auto custom = juce::SystemStats::getEnvironmentVariable ("TUNELIST_METADATA_URL", {});
+    if (custom.startsWithIgnoreCase ("http"))
+        return custom;
     return "https://tunelist-metadata-96674523622.europe-north1.run.app/lookup";
 }
 

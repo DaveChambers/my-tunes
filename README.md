@@ -1,39 +1,45 @@
 # TuneList
 
-A small macOS app for organising DJ tunes before gigs. Scans a folder of audio files, parses the filenames into Key / BPM / Artist / Title / Version, shows them in a list (and later a grid), lets you tag tracks onto emoji "boards" for quick recall, and (when a Discogs token is set) fetches cover art and metadata for the sampled tracks.
+A small desktop app for **macOS and Linux** for organising DJ tunes before gigs. Scans a folder of audio files, parses the filenames into Key / BPM / Artist / Title / Version, shows them in a list (and later a grid), lets you tag tracks onto emoji "boards" for quick recall, and (when a Discogs token is set) fetches cover art and metadata for the sampled tracks.
 
-> The repo is still called `my-tunes` and the bundle identifier is still `com.makeelectronicsound.mytunes` so that previously-saved user state under `~/Library/Application Support/My Tunes/` remains the canonical store across the rename. Only the user-visible app name (window title, .app bundle, menu bar) is "TuneList".
+> The repo is still called `my-tunes` and the bundle identifier is still `com.makeelectronicsound.mytunes` so that previously-saved user state under `~/Library/My Tunes/` (macOS) remains the canonical store across the rename. Only the user-visible app name (window title, .app bundle, menu bar) is "TuneList".
 
 This is **v0.1** — first version, deliberately simple. See **Current limitations** below for what's wired up and what's still scaffolded.
 
 ## Build
 
-Requirements: macOS, Xcode command-line tools, CMake ≥ 3.22, an internet connection on first configure (to fetch JUCE).
+The first configure downloads JUCE into `build/_deps/` (a minute or two). CMake ≥ 3.22.
+
+### Linux (Ubuntu / Debian)
 
 ```bash
-git clone <this-repo> my-tunes
-cd my-tunes
+sudo apt install build-essential cmake git libasound2-dev libfreetype-dev libfontconfig1-dev \
+  libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxext-dev libgl1-mesa-dev libcurl4-openssl-dev
+git clone https://github.com/DaveChambers/my-tunes && cd my-tunes
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+./build/TuneList_artefacts/Release/TuneList
+```
+
+Linux builds use JUCE 8.0.15 (8.0.4 crashes in its text shaping on Linux) and libcurl for network lookups.
+
+**Text too small or too big?** TuneList picks a size from your screen's DPI. Adjust with
+**Ctrl + `=` / `-`**, reset with **Ctrl + `0`** (remembered between launches), or force one
+launch with `TUNELIST_SCALE=1.5 ./build/TuneList_artefacts/Release/TuneList`.
+
+Known Linux gaps: `.m4a` / `.aac` / `.alac` previews don't play (those come from macOS's
+CoreAudio; MP3, WAV, AIFF, FLAC and OGG do), and emoji board icons render in monochrome.
+
+### macOS
+
+Xcode command-line tools plus CMake:
+
+```bash
+git clone https://github.com/DaveChambers/my-tunes && cd my-tunes
 cmake -S . -B build
 cmake --build build -j
-```
-
-The first `cmake -S . -B build` clones JUCE 8.0.4 into `build/_deps/` and may take a minute.
-
-## Run
-
-The macOS app bundle is built at:
-
-```
-build/TuneList_artefacts/TuneList.app
-```
-
-Open it the usual way:
-
-```bash
 open "build/TuneList_artefacts/TuneList.app"
 ```
-
-Or double-click it in Finder.
 
 ## Opening in Projucer / Xcode
 
@@ -55,7 +61,8 @@ The CMake setup keeps working independently — use whichever you prefer.
 A small console test runner is built alongside the app:
 
 ```bash
-./build/TuneListTests_artefacts/TuneListTests
+./build/TuneListTests_artefacts/TuneListTests            # macOS
+./build/TuneListTests_artefacts/Release/TuneListTests    # Linux
 ```
 
 Currently exercises the filename parser against the example filenames from Dave's tune folder plus a handful of edge cases (commas + internal hyphen in artist, parens-heavy titles, explicit `Foo - Larse Remix` versions, malformed inputs, supported-extensions sanity).
@@ -71,7 +78,7 @@ GET https://tunelist-metadata-96674523622.europe-north1.run.app/lookup
 
 After a folder scan the app issues one request per track. The proxy returns a normalised JSON payload telling TuneList which source won (Spotify, Discogs, or none) and the image URL to cache.
 
-**End users do not need Spotify or Discogs API tokens.** The macOS app no longer reads `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, or `DISCOGS_USER_TOKEN`; those credentials live in the Cloud Run service.
+**End users do not need Spotify or Discogs API tokens.** The public service is provided as-is for TuneList users and may be rate-limited; to use your own, set `TUNELIST_METADATA_URL=https://your-service/lookup` before launching. The app no longer reads `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, or `DISCOGS_USER_TOKEN`; those credentials live in the Cloud Run service.
 
 The detail panel for each track shows an **Artwork source** row (`Spotify` / `Discogs` / `None`), the matched artist / title / album, the exact `Lookup query` the proxy ran, and **Open Spotify** / **Open Discogs** buttons that launch the corresponding web page in your browser when the proxy supplied a URL.
 
@@ -82,10 +89,11 @@ The toolbar **Re-lookup** button force-refreshes every track via the proxy. Use 
 Both Spotify and Discogs images go through the same on-disk cache (content-addressed by URL hash):
 
 ```
-~/Library/Application Support/My Tunes/ArtworkCache/<hash>.<ext>
+~/Library/My Tunes/ArtworkCache/<hash>.<ext>     # macOS
+~/.config/My Tunes/ArtworkCache/<hash>.<ext>     # Linux
 ```
 
-No artwork is stored inside the repo. The Application Support data path is **deliberately kept as "My Tunes"** even though the app was renamed to TuneList — so existing user state (tags, priority, notes, cached art) migrates with no copy step.
+No artwork is stored inside the repo. The data folder is **deliberately kept as "My Tunes"** even though the app was renamed to TuneList — so existing user state (tags, priority, notes, cached art) migrates with no copy step.
 
 The footer shows the combined attribution: *"Data and artwork may be provided by Spotify and Discogs. This application is not affiliated with, sponsored or endorsed by Spotify or Discogs."*
 
@@ -101,12 +109,14 @@ The repository still contains `SpotifyClient` and `DiscogsClient` source files p
 
 User state is stored at:
 ```
-~/Library/Application Support/My Tunes/my-tunes-library.json
+~/Library/My Tunes/my-tunes-library.json      # macOS
+~/.config/My Tunes/my-tunes-library.json      # Linux
 ```
 
 Cached cover-art thumbnails:
 ```
-~/Library/Application Support/My Tunes/ArtworkCache/
+~/Library/My Tunes/ArtworkCache/      # macOS
+~/.config/My Tunes/ArtworkCache/      # Linux
 ```
 
 (Both are created on first save / first cached lookup. Storage and cache are scaffolded but not yet wired up — see below.)
@@ -137,6 +147,19 @@ Cached cover-art thumbnails:
 - Music import beyond a single folder (multiple roots, watched folders).
 - Audio preview / waveform.
 
+## Contributing
+
+Issues and pull requests are welcome. Please run the unit tests before opening a PR, and keep
+the core types (`TrackFile`, `TrackFilenameParser`, `TrackLibrary`, `TrackStorage`, …) free of UI code.
+
 ## License
 
-Private — not for redistribution.
+TuneList is free software: you can redistribute it and/or modify it under the terms of the
+**GNU Affero General Public License v3.0** as published by the Free Software Foundation.
+See [`LICENSE`](LICENSE).
+
+TuneList is built with [JUCE](https://juce.com), which is used under its AGPLv3 open-source
+licence. Copyright © Make Electronic Sound OÜ.
+
+Spotify and Discogs are trademarks of their respective owners. TuneList is not affiliated with,
+sponsored or endorsed by Spotify or Discogs.
