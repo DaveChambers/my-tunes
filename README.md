@@ -147,10 +147,10 @@ Cached cover-art thumbnails:
 - Music import beyond a single folder (multiple roots, watched folders).
 - Audio preview / waveform.
 
-## Contributing
+## Contributions
 
-Issues and pull requests are welcome. Please run the unit tests before opening a PR, and keep
-the core types (`TrackFile`, `TrackFilenameParser`, `TrackLibrary`, `TrackStorage`, …) free of UI code.
+TuneList is published as-is. Issues and pull requests are not being accepted; you're welcome
+to fork it under the terms of the licence below.
 
 ## License
 
