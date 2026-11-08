@@ -1,5 +1,16 @@
 cmake_minimum_required(VERSION 3.22)
-project(TuneList VERSION 0.1.0 LANGUAGES C CXX OBJC OBJCXX)
+project(TuneList VERSION 0.1.0 LANGUAGES C CXX)
+if(APPLE)
+    enable_language(OBJC OBJCXX)   # JUCE's macOS backends are Objective-C++
+endif()
+
+# JUCE on Linux does all HTTP through libcurl; without it the metadata
+# proxy and artwork downloads silently fail. macOS uses NSURLSession.
+if(UNIX AND NOT APPLE)
+    set(TUNELIST_USE_CURL 1)
+else()
+    set(TUNELIST_USE_CURL 0)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -8,11 +19,20 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Fetch JUCE. Pinned to 8.0.4 — works on macOS 15+ SDK and is a stable
 # point we already use in sibling projects.
+# JUCE 8.0.4 segfaults on Linux the first time it shapes label text
+# (SimpleShapedText::shape); 8.0.15 fixes it. macOS stays on the proven
+# 8.0.4 until a Mac build on 8.0.15 has been checked.
+if(APPLE)
+    set(_tunelist_juce_default "8.0.4")
+else()
+    set(_tunelist_juce_default "8.0.15")
+endif()
+set(TUNELIST_JUCE_TAG "${_tunelist_juce_default}" CACHE STRING "JUCE release tag to build against")
 include(FetchContent)
 FetchContent_Declare(
     JUCE
     GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
-    GIT_TAG        8.0.4
+    GIT_TAG        ${TUNELIST_JUCE_TAG}
     GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(JUCE)
@@ -86,7 +106,7 @@ target_sources(TuneList PRIVATE
 )
 
 target_compile_definitions(TuneList PRIVATE
-    JUCE_USE_CURL=0
+    JUCE_USE_CURL=${TUNELIST_USE_CURL}
     JUCE_WEB_BROWSER=0
     JUCE_STANDALONE_APPLICATION=1
     JUCE_USE_MP3AUDIOFORMAT=1
@@ -187,7 +207,7 @@ target_sources(TuneListTests PRIVATE
 )
 
 target_compile_definitions(TuneListTests PRIVATE
-    JUCE_USE_CURL=0
+    JUCE_USE_CURL=${TUNELIST_USE_CURL}
     JUCE_WEB_BROWSER=0
     JUCE_STANDALONE_APPLICATION=1
     JUCE_UNIT_TESTS=1
@@ -210,3 +230,11 @@ target_link_libraries(TuneListTests PRIVATE
 
 enable_testing()
 add_test(NAME TuneListTests COMMAND TuneListTests)
+
+# --- Linux ------------------------------------------------------------------
+# JUCE_USE_CURL=1 on Linux (see top): link libcurl for both targets.
+if(UNIX AND NOT APPLE)
+    find_package(CURL REQUIRED)
+    target_link_libraries(TuneList      PRIVATE CURL::libcurl)
+    target_link_libraries(TuneListTests PRIVATE CURL::libcurl)
+endif()
